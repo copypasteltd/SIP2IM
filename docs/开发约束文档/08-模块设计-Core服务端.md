@@ -76,7 +76,7 @@ http → 各模块 routes
 
 ### 3.4 sms
 
-- 入站：sms.received → 以 envelope id 作 event_id 唯一插入 → 回 ack → 事件 sms.new → 若 sms_forward 则 notify 两平台。
+- 入站：在同一事务按信封 ID 去重，保存事件、短信历史和管理通知标记。确认持久化或精确重放后可对设备回 ACK，不等待广播。Core 单实例先读并释放数据库连接，再广播 `sms.new`，用另一个短事务按事件 ID 和完整微秒创建时间删除对应标记。广播与清理不确定时可能重复提示，不表示客户端签收。配对用户短信转发尚未接通。
 - 出站状态机（sms_task.state）：
 
 | 状态 | 进入条件 | 下一步 |

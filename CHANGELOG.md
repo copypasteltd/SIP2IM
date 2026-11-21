@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · 入站短信通知与数据库连接隔离
+
+- Core 先读取已提交的通知标记并归还连接，再认证管理订阅者并广播，避免广播等待期间占用读事务的连接和行锁。短信历史与通知标记仍在同一事务入库，设备事件 ACK 不等待广播。[入站通知队列](core/src/sms/incoming-outbox.ts)
+- 广播调用成功返回后，在另一个短事务中按原事件 ID 和精确到微秒的标记创建时间清理。找不到原标记时不删除替换记录。清理回执不明确时，后续按持久标记重查，可能重复提示；这不是浏览器签收。停止或启动失败不再开启新通知，正常停机等待已开始的工作，所有权丢失时停止发送和清理尚未发出的操作。[关停协调](core/src/signal-handling.ts)
+- Web、适配器、演示和录屏未改动；复验了原合成流程。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 平台登录挑战绑定与只读恢复
 
 - 错过登录提示后，管理员可点击「读取当前登录步骤」；只发鉴权、禁止缓存的 GET，不重新触发登录或自动提交资料。结果为空或操作未结时不能据此判断登录成败。[恢复说明](docs/platform-login-recovery.md)
 - Core 为每个已接纳的新提示生成一次性挑战标识，提交必须匹配该平台、连接和当前挑战。同名步骤更换也会使旧资料失效。管理 API 需要同步升级；适配器 IPC 请求体不变。[Core 接口](core/src/channels/control-routes.ts) · [Web 控制](web/src/features/channels/channel-actions.tsx)
-- 演示读回返回空挑战，仍禁用平台登录、消息、配对启用和通话。既有实录不展示平台登录。[验证记录](docs/VERIFICATION.md)
+- 演示读回返回空挑战，仍禁用平台登录、消息、配对启用和通话。既有实录不展示平台登录。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/98d480237c73b7ceaae97a492fc7f08b2eebea7c/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 平台适配器握手与管理通知
 
@@ -79,11 +85,17 @@
 
 ## English
 
+### 2026-11-21 · Incoming SMS notification and pool isolation
+
+- Core releases the checkout used to read a committed notification marker before authorizing administrator subscribers and broadcasting. Fanout no longer holds that read connection or a marker row lock. SMS history and the marker still commit together; the device event ACK does not wait for fanout. [Incoming SMS outbox](core/src/sms/incoming-outbox.ts)
+- A separate short transaction clears only the original event ID and microsecond-precision marker timestamp after the broadcast call resolves. A replacement marker is not deleted on a mismatch. Uncertain cleanup can repeat the hint on a later read; neither cleanup nor broadcast establishes browser receipt. Stop or startup failure freezes new attempts, graceful shutdown drains admitted work, and observed ownership loss fences sends and cleanup not yet issued. [Shutdown coordinator](core/src/signal-handling.ts)
+- Web, the adapters, the demo, and its recording are unchanged. The existing synthetic workflow was rechecked. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Bound login challenges and read-only recovery
 
 - An administrator who misses a prompt can select Read current login step. This sends an authenticated, no-store GET, not a new login or a submission. An empty readback does not settle the login outcome. [Recovery guide](docs/platform-login-recovery.md)
 - Core assigns an opaque ID to each newly accepted prompt. Submissions must match the platform, attachment, and current challenge; even a replacement with the same step name retires the older one. Upgrade Core and Web together for this management API change. Adapter IPC payloads are unchanged. [Core routes](core/src/channels/control-routes.ts) · [Web controls](web/src/features/channels/channel-actions.tsx)
-- The demo returns no challenge and keeps platform sign-in, messaging, new pairing, and calling disabled. The existing recording does not show a platform sign-in. [Verification](docs/VERIFICATION.md)
+- The demo returns no challenge and keeps platform sign-in, messaging, new pairing, and calling disabled. The existing recording does not show a platform sign-in. [Verification](https://github.com/copypasteltd/SIP2IM/blob/98d480237c73b7ceaae97a492fc7f08b2eebea7c/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Adapter handshake and admin notifications
 

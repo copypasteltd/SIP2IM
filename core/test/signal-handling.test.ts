@@ -74,10 +74,11 @@ describe('signal coordinator', () => {
     expect(source.count()).toBe(0);
   });
 
-  it('cleans up after synchronous startup failure without a signal', async () => {
+  it('fences admission before cleanup after startup failure without a signal', async () => {
     const source = new FakeSignals();
-    const cleanup = vi.fn();
-    const done = runWithSignals(source, () => { throw undefined; }, cleanup);
+    let admission!: AbortSignal;
+    const cleanup = vi.fn(() => { expect(admission.aborted).toBe(true); });
+    const done = runWithSignals(source, signal => { admission = signal; throw undefined; }, cleanup);
     expect(await done).toMatchObject({ startupFailed: true, startupError: undefined, cleanupFailed: false });
     expect(cleanup).toHaveBeenCalledOnce();
     expect(source.count()).toBe(0);

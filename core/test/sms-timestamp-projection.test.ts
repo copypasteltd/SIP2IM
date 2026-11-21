@@ -50,15 +50,16 @@ it('projects task and incoming event reads',async()=>{
  expect(await repo.byEvent('evt')).toMatchObject({occurredAt:1000,task:null});
 });
 it('projects incoming outbox broadcast timestamps',async()=>{
- let pending=true;const query=vi.fn(async(sql:string)=>{
+ let pending=true;
+ const query=vi.fn(async(sql:string)=>{
   if(sql==='COMMIT'||sql==='ROLLBACK')return {rows:[],command:sql};
-  if(sql.includes('FOR UPDATE'))return {rows:pending?[{eventId:'e',id:'m',occurredAt:String(projected(sql,'m.occurred_at',1000.456))}]:[]};
-  if(sql.startsWith('DELETE'))pending=false;
+  if(sql.includes('FROM sms_incoming_admin_outbox o'))return {rows:pending?[{eventId:'e',id:'m',markerVersion:'2026-11-21T11:26:10.123456Z',occurredAt:String(projected(sql,'m.occurred_at',1000.456))}]:[]};
+  if(sql.startsWith('DELETE')){pending=false;return {rows:[],rowCount:1};}
   return {rows:[]};
  });
- const publish=vi.fn(async()=>{}),pool={connect:async()=>({query,release(){}})} as unknown as pg.Pool;
+ const publish=vi.fn(async()=>{}),pool={query,connect:async()=>({query,release(){}})} as unknown as pg.Pool;
  await new IncomingSmsOutbox(pool,publish).flush();
- expect(publish).toHaveBeenCalledWith('sms.new',expect.objectContaining({occurredAt:1000,task:null}));
+ expect(publish).toHaveBeenCalledWith('sms.new',expect.objectContaining({occurredAt:1000,task:null}),expect.any(Function));
 });
 
 it('rejects invalid calendar cursors and accepts UTC ISO and PostgreSQL offsets',async()=>{

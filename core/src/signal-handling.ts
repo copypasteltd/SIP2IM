@@ -18,7 +18,8 @@ export interface SignalResult {
  * Register before starting. Complete after the first signal or a startup failure,
  * waiting for startup to settle before running cleanup exactly once. The start
  * callback receives a synchronous admission fence and can request a stop when
- * a runtime prerequisite is lost. The caller owns exit policy.
+ * a runtime prerequisite is lost. Startup failure also closes admission before
+ * cleanup. The caller owns exit policy.
  * The startup operation must eventually settle, including after a signal.
  */
 export function runWithSignals(
@@ -49,7 +50,8 @@ export function runWithSignals(
     let cleanupError: unknown;
     try {
       try { await start(stopping.signal, () => stop()); } catch (error) { startupFailed = true; startupError = error; }
-      if (!startupFailed) await requested;
+      if (startupFailed) stop();
+      else await requested;
       try { await cleanup(); } catch (error) { cleanupFailed = true; cleanupError = error; }
       return { signal, startupFailed, startupError, cleanupFailed, cleanupError };
     } finally {

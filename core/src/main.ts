@@ -253,7 +253,9 @@ stopping.addEventListener('abort', () => { void activeSmsRateRuntime.stop(); }, 
 if (stopping.aborted) void activeSmsRateRuntime.stop();
 transportLifecycle.defer(()=>activeSmsRateRuntime.stop(),{critical:true});
 flushSmsTasks();
-const incomingOutbox=new IncomingSmsOutbox(pool,(type,data)=>hub.publish(type,data));
+const incomingOutbox=new IncomingSmsOutbox(pool,(type,data,isCurrent)=>hub.publish(type,data,isCurrent),{
+  stopping, assertOwnership: () => ownership.assertHeld(),
+});
 const flushIncoming=()=>{void incomingOutbox.flush().catch(error=>app.log.error({err:error},'incoming SMS notification dispatch failed'));};
 transportLifecycle.defer(()=>incomingOutbox.stop(),{critical:true});
 flushIncoming();
