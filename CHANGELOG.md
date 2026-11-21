@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · 浏览器挂断与音频背压
+
+- 同一管理员会话在断开本地音频或返回拨号页之后，可以先读回原通话，再明确确认挂断；只有仍符合条件的原通话才提交请求。已受理或未知的挂断保留防重锁，不自动重发。挂断受理不等于通话结束。[浏览器拨号](web/src/features/calls/browser-dialer.tsx)
+- 浏览器送入 WebSocket 的媒体应用数据以 4 KiB 为检查上限。超过上限的新块丢弃、不缓存重放；后续收到的序号可反映中间的缺帧。音频连接出错时只通知一次，不自动重连。[浏览器媒体传输](web/src/audio/media-transport.ts)
+- Core 权限、设备能力与协议不变。合成演示仍只提供通话记录，不开放拨号或挂断；既有录屏不展示新的挂断流程。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 媒体收帧时序与断流诊断
 
 - Core 保存接收端单调时钟上的到达时间。鉴权等待不刷新旧帧；等待期间和播放时超过 300 ms 的帧均丢弃。[媒体传输](core/src/media/transport.ts) · [抖动缓冲](core/src/media/jitter.ts)
 - 被拒绝的重复或迟到帧不会推迟断流诊断。长间隔后用向前推进的序号重新缓冲，保留 uint32 回绕。已认证且仍获授权的腿满 2 秒没有新帧入队时记录 `media_stalled`，不凭此挂断或标记通话结束。[媒体腿](core/src/media/leg.ts) · [通话协调](core/src/calls/web-calls.ts)
-- 本轮不更改帧格式、设备能力或 Web 界面。原合成演示和实录保留并复验。[验证记录](docs/VERIFICATION.md)
+- 本轮不更改帧格式、设备能力或 Web 界面。原合成演示和实录保留并复验。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/a28f74201a16b4ef4254d972b20782fb35b70980/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 通话启动对账与过期预约
 
@@ -61,11 +67,17 @@
 
 ## English
 
+### 2026-11-21 · Browser hangup and audio backpressure
+
+- In the same administrator session, an operator can read back the original call and explicitly confirm a hangup after local audio disconnects or the dialer is reopened. An accepted or uncertain hangup is not resubmitted. Acceptance does not mean the call has ended. [Browser dialer](web/src/features/calls/browser-dialer.tsx)
+- Browser media checks a 4 KiB WebSocket application-byte limit before admitting each PCM chunk. It drops new chunks that would exceed the limit, without buffering or replaying them. Later sequences can expose intervening drops. Media failure is reported once without reconnecting. [Browser media transport](web/src/audio/media-transport.ts)
+- Core authorization, device capabilities, and the wire format are unchanged. The synthetic demo still exposes call records only, not dialing or hangup; the existing recording does not show the new hangup flow. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Media frame timing and stall diagnostics
 
 - Core records arrival using a receiver-side monotonic clock. Authentication does not refresh queued frames; frames older than 300 ms are discarded after authentication and at playout. [Media transport](core/src/media/transport.ts) · [Jitter buffer](core/src/media/jitter.ts)
 - Rejected duplicates and late frames do not reset the stall clock. After a gap, a forward sequence can re-prime playout across uint32 wrap. An authorized attached leg with no newly accepted frame for two seconds logs `media_stalled`; the diagnostic does not hang up or mark the call ended. [Media leg](core/src/media/leg.ts) · [Call coordination](core/src/calls/web-calls.ts)
-- Frame format, device capabilities, and the Web UI are unchanged. The existing demo and recording were retained and rechecked. [Verification](docs/VERIFICATION.md)
+- Frame format, device capabilities, and the Web UI are unchanged. The existing demo and recording were retained and rechecked. [Verification](https://github.com/copypasteltd/SIP2IM/blob/a28f74201a16b4ef4254d972b20782fb35b70980/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Call restart recovery and expired reservations
 

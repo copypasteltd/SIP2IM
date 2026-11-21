@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ApiError, request } from '../../api/client';
@@ -23,22 +23,40 @@ const definiteRejections = new Set(['BAD_REQUEST', 'NUMBER_INVALID', 'IDEMPOTENC
 const rejected = (cause: unknown) => cause instanceof ApiError && cause.status < 500 && definiteRejections.has(cause.code);
 
 type Intent = { key: string; simId: string; deviceId: string; to: string };
-type OwnedCall = Pick<Intent, 'deviceId' | 'simId'> & { id: string; legId: string };
+type ControlKind = 'hangup' | 'dtmf';
+type ControlState = 'pending' | 'accepted' | 'unknown';
+type OwnedCall = Pick<Intent, 'deviceId' | 'simId'> & { id: string; legId: string; controls: Partial<Record<ControlKind, ControlState>> };
+type ControlTarget = { owner: Session; call: OwnedCall };
+type ControlAttempt = ControlTarget & { kind: ControlKind; controller: AbortController; timer?: ReturnType<typeof setTimeout> };
 type Attempt = {
   owner: Session; controller: AbortController; prepared?: PreparedCallAudio; sent: boolean;
-  mediaTimer?: ReturnType<typeof setTimeout>; hangupLocked?: boolean; dtmfLocked?: boolean;
+  mediaTimer?: ReturnType<typeof setTimeout>;
 };
-type Notice = 'preparing' | 'reserving' | 'audioFailed' | 'unavailable' | 'rejected' | 'reservationUnknown' | 'audioLost' | 'hangupSent' | 'hangupUnknown' | 'dtmfSent' | 'dtmfUnknown' | 'controlRejected';
-// Store only a pending HTTP intent in memory. The media token never enters this map or the query cache.
+type Notice = 'preparing' | 'reserving' | 'audioFailed' | 'unavailable' | 'rejected' | 'reservationUnknown' | 'dtmfSent' | 'controlRejected' | 'summaryStale';
+// Keep request identity and control outcomes in this browser session only. Never store the media token here or in the query cache.
 const unresolved = new WeakMap<Session, Intent>();
 const callRecords = new WeakMap<Session, OwnedCall>();
 
 function releaseAudio(attempt?: Attempt) {
   if (!attempt) return;
   clearTimeout(attempt.mediaTimer);
+  const audio = attempt.prepared;
+  attempt.prepared = undefined;
   attempt.controller.abort();
-  attempt.prepared?.close();
+  audio?.close();
 }
+
+function abandonControl(ref: { current: ControlAttempt | undefined }) {
+  const attempt = ref.current;
+  if (!attempt) return;
+  ref.current = undefined;
+  clearTimeout(attempt.timer);
+  attempt.call.controls[attempt.kind] = 'unknown';
+  attempt.controller.abort();
+}
+
+const fresh = (updatedAt: number, now = Date.now()) => updatedAt > 0 && now >= updatedAt && now - updatedAt <= 5_000;
+const canHangup = (state: CallState | undefined) => state === 'awaiting_browser' || state === 'cell_dialing' || state === 'bridged';
 
 async function readAvailable(signal?: AbortSignal): Promise<string[]> {
   const result = await request<unknown>('/api/calls/availability', { signal, cache: 'no-store' });
@@ -61,7 +79,7 @@ function reservation(value: unknown, intent: Intent) {
   const { legId, mediaPath, mediaToken } = value.browserLeg;
   if (!matches(id, sessionIdPattern) || !matches(legId, legIdPattern) || typeof mediaPath !== 'string' ||
       !matches(mediaToken, /^[A-Za-z0-9_-]{43}$/)) throw Error('Invalid call reservation');
-  const call: OwnedCall = { id, legId, deviceId: intent.deviceId, simId: intent.simId };
+  const call: OwnedCall = { id, legId, deviceId: intent.deviceId, simId: intent.simId, controls: {} };
   if (readCallState(value.session, call) !== 'awaiting_browser') throw Error('Call no longer awaiting media');
   if (!mediaPath.startsWith('/ws/media?')) throw Error('Invalid media path');
   const params = new URLSearchParams(mediaPath.slice('/ws/media?'.length));
@@ -86,11 +104,14 @@ export function BrowserDialer() {
   const [notice, setNotice] = useState<Notice>();
   const [owned, setOwned] = useState<OwnedCall | undefined>(() => session ? callRecords.get(session) : undefined);
   const [listening, setListening] = useState(false);
-  const [control, setControl] = useState<'hangup' | 'dtmf'>();
-  const [hangupLocked, setHangupLocked] = useState(false);
-  const [dtmfLocked, setDtmfLocked] = useState(false);
+  const [control, setControl] = useState<ControlKind>();
   const attemptRef = useRef<Attempt | undefined>(undefined);
-  const controlRef = useRef<AbortController | undefined>(undefined);
+  const controlRef = useRef<ControlAttempt | undefined>(undefined);
+  const reviewRef = useRef<ControlTarget | undefined>(undefined);
+  const hangupDialog = useRef<HTMLDialogElement>(null);
+  const cancelHangup = useRef<HTMLButtonElement>(null);
+  const hangupTitle = useId();
+  const hangupHelp = useId();
   const recovery = session && unresolved.get(session);
   const canUseAudio = microphoneAvailable();
 
@@ -104,12 +125,14 @@ export function BrowserDialer() {
   const choices = (devices.isSuccess ? devices.data.pages : []).flatMap(page => Array.isArray(page.data) ? page.data : []).flatMap(device =>
     deviceIds.includes(device.id) && Array.isArray(device.sims) ? device.sims.filter(sim => eligible(device, sim, Date.now())).map(sim => ({ device, sim })) : []);
   const selection = choices.find(choice => choice.sim.id === simId);
+  const currentOwned = !!session && !!owned && callRecords.get(session) === owned;
   const summaryKey = ['calls', owned?.id, 'browser-control'] as const;
   const summary = useQuery({
-    queryKey: summaryKey, enabled: !!session && !!owned,
+    queryKey: summaryKey, enabled: currentOwned,
     queryFn: async ({ signal }) => {
-      if (!owned) throw Error('No call selected');
-      const result = await request<unknown>('/api/calls/' + encodeURIComponent(owned.id) + '/summary', { signal });
+      if (!owned || !session || activeSession() !== session || callRecords.get(session) !== owned) throw Error('No current call selected');
+      const result = await request<unknown>('/api/calls/' + encodeURIComponent(owned.id) + '/summary', { signal, cache: 'no-store' });
+      if (activeSession() !== session || callRecords.get(session) !== owned) throw Error('Call observation superseded');
       return readCallState(result.data, owned);
     },
     staleTime: 0, refetchInterval: query => query.state.data === 'ended' || query.state.data === 'unknown' ? false : 2_000, retry: false,
@@ -121,23 +144,21 @@ export function BrowserDialer() {
     function release() {
       const attempt = attemptRef.current;
       attemptRef.current = undefined;
+      reviewRef.current = undefined;
+      if (hangupDialog.current?.open) hangupDialog.current.close();
+      abandonControl(controlRef);
       releaseAudio(attempt);
-      controlRef.current?.abort();
-      controlRef.current = undefined;
     }
     function pageHidden() {
-      const attempt = attemptRef.current;
       release();
-      if (!attempt) return;
-      setListening(false); setBusy(false); setControl(undefined);
-      setNotice(unresolved.has(attempt.owner) ? 'reservationUnknown' : attempt.sent ? 'audioLost' : undefined);
+      setListening(false); setBusy(false); setControl(undefined); setNotice(undefined);
     }
     const unsubscribe = useSession.subscribe((next, previous) => {
       if (next.session === previous.session) return;
-      if (previous.session) { unresolved.delete(previous.session); callRecords.delete(previous.session); }
       release();
+      if (previous.session) { unresolved.delete(previous.session); callRecords.delete(previous.session); }
       setOwned(undefined); setListening(false); setBusy(false); setControl(undefined); setNotice(undefined);
-      setTo(''); setSimId(''); setDigits(''); setHangupLocked(false); setDtmfLocked(false);
+      setTo(''); setSimId(''); setDigits('');
     });
     window.addEventListener('pagehide', pageHidden);
     return () => { unsubscribe(); window.removeEventListener('pagehide', pageHidden); release(); };
@@ -148,15 +169,16 @@ export function BrowserDialer() {
     if (!terminal) return;
     const attempt = attemptRef.current;
     attemptRef.current = undefined;
+    reviewRef.current = undefined;
+    if (hangupDialog.current?.open) hangupDialog.current.close();
+    abandonControl(controlRef);
     releaseAudio(attempt);
-    controlRef.current?.abort();
-    controlRef.current = undefined;
     setListening(false); setControl(undefined);
   }, [terminal, callState, summary.isSuccess]);
 
   async function dial(intent: Intent, retry: boolean) {
     const actor = activeSession();
-    if (!actor || session !== actor || attemptRef.current || !canUseAudio || !deviceIds.includes(intent.deviceId)) return;
+    if (!actor || session !== actor || attemptRef.current || callRecords.has(actor) || !canUseAudio || !deviceIds.includes(intent.deviceId)) return;
     const previous = unresolved.get(actor);
     if (retry ? previous !== intent : !!previous) return;
     const controller = new AbortController();
@@ -164,7 +186,7 @@ export function BrowserDialer() {
     const owns = () => attemptRef.current === attempt && useSession.getState().session === actor && actor.expiresAt > Date.now();
     attemptRef.current = attempt;
     setBusy(true); setNotice('preparing'); setOwned(undefined); setListening(false);
-    setHangupLocked(false); setDtmfLocked(false); setDigits('');
+    setDigits('');
     let timeout = setTimeout(() => controller.abort(), 30_000);
     let reservationReceived = false;
     try {
@@ -196,18 +218,19 @@ export function BrowserDialer() {
       callRecords.set(actor, call);
       setOwned(call);
       function onAudioClosed() {
-        if (!owns()) return;
-        clearTimeout(attempt.mediaTimer);
-        setListening(false); setNotice(state => state === 'hangupUnknown' || state === 'hangupSent' ? state : 'audioLost');
+        if (!owns() || attempt.prepared !== prepared) return;
+        releaseAudio(attempt);
+        setListening(false);
       }
       prepared.attach(mediaPath, mediaToken, { onFlags: () => {}, onClosed: onAudioClosed });
-      if (prepared.usable()) attempt.mediaTimer = setTimeout(() => { prepared.close(); onAudioClosed(); }, 12_000);
-      setListening(prepared.usable());
-      setNotice(prepared.usable() ? undefined : 'audioLost');
+      const usable = attempt.prepared === prepared && prepared.usable();
+      if (usable) attempt.mediaTimer = setTimeout(onAudioClosed, 12_000);
+      setListening(usable);
+      setNotice(undefined);
       void client.invalidateQueries({ queryKey: ['calls'] });
     } catch (cause) {
       if (!owns()) return;
-      if (reservationReceived) setNotice('audioLost');
+      if (reservationReceived) { releaseAudio(attempt); setListening(false); setNotice(undefined); }
       else if (attempt.sent && !retry && rejected(cause)) { unresolved.delete(actor); setNotice('rejected'); }
       else if (attempt.sent) setNotice('reservationUnknown');
       else setNotice(attempt.prepared ? 'unavailable' : 'audioFailed');
@@ -223,48 +246,75 @@ export function BrowserDialer() {
     }
   }
 
-  const mayControl = !!owned && !!session && listening && summary.isSuccess && Date.now() - summary.dataUpdatedAt <= 5_000 &&
-    !terminal && !control && !busy && !hangupLocked;
-  async function sendControl(kind: 'hangup' | 'dtmf', entered?: string) {
-    const live = attemptRef.current;
-    if (!mayControl || !owned || !session || live?.owner !== session || activeSession() !== session ||
-        !live.prepared?.usable() || live.hangupLocked || controlRef.current) return;
-    const snapshot = client.getQueryState<CallState>(summaryKey);
-    if (snapshot?.status !== 'success' || Date.now() - snapshot.dataUpdatedAt > 5_000) {
+  const recentSummary = summary.isSuccess && summary.isFetchedAfterMount && fresh(summary.dataUpdatedAt);
+  const mayControl = currentOwned && recentSummary && !terminal && !control && !busy && !owned?.controls.hangup && owned?.controls.dtmf !== 'pending';
+  const hangupAvailable = mayControl && canHangup(callState);
+  const dtmfAvailable = mayControl && listening && callState === 'bridged' && !owned?.controls.dtmf;
+
+  async function sendControl(kind: ControlKind, target: ControlTarget, entered?: string) {
+    const { owner, call } = target;
+    const audio = attemptRef.current;
+    if (busy || activeSession() !== owner || callRecords.get(owner) !== call || controlRef.current ||
+        call.controls.hangup || call.controls.dtmf === 'pending') return;
+    const snapshot = client.getQueryState<CallState>(['calls', call.id, 'browser-control']);
+    if (!summary.isFetchedAfterMount || snapshot?.status !== 'success' || snapshot.isInvalidated || !fresh(snapshot.dataUpdatedAt)) {
+      setNotice('summaryStale');
       void summary.refetch();
       return;
     }
-    if (kind === 'dtmf' ? snapshot.data !== 'bridged' || live.dtmfLocked || dtmfLocked || !entered || !/^[0-9*#]{1,32}$/.test(entered) :
-      snapshot.data !== 'awaiting_browser' && snapshot.data !== 'cell_dialing' && snapshot.data !== 'bridged') return;
+    if (kind === 'dtmf') {
+      if (snapshot.data !== 'bridged' || !listening || audio?.owner !== owner || !audio.prepared?.usable() ||
+          call.controls.dtmf || !entered || !/^[0-9*#]{1,32}$/.test(entered)) return;
+    } else if (!canHangup(snapshot.data)) return;
+
     const controller = new AbortController();
-    controlRef.current = controller;
+    const attempt: ControlAttempt = { ...target, kind, controller };
+    const owns = () => controlRef.current === attempt && activeSession() === owner && callRecords.get(owner) === call;
+    const readBack = () => { void client.invalidateQueries({ queryKey: ['calls'] }); };
+    controlRef.current = attempt;
+    // Lock before invoking fetch. Navigation or timeout may lose the response,
+    // but cannot prove that Core did not act on the request.
+    call.controls[kind] = 'pending';
     setControl(kind); setNotice(undefined);
     if (kind === 'dtmf') setDigits('');
-    const timeout = setTimeout(() => controller.abort(), 12_000);
-    const owns = () => controlRef.current === controller && attemptRef.current === live && useSession.getState().session === live.owner && live.owner.expiresAt > Date.now();
+    attempt.timer = setTimeout(() => {
+      if (!owns()) return;
+      abandonControl(controlRef);
+      setControl(undefined);
+      readBack();
+    }, 12_000);
     try {
-      const response = await request<unknown>('/api/calls/' + encodeURIComponent(owned.id) + '/' + kind, {
+      const response = await request<unknown>('/api/calls/' + encodeURIComponent(call.id) + '/' + kind, {
         method: 'POST', ...(kind === 'dtmf' ? { body: { digits: entered } } : {}), signal: controller.signal,
       });
       controller.signal.throwIfAborted();
       if (!record(response.data) || Object.keys(response.data).length !== 0) throw Error('Invalid acknowledgement');
       if (owns()) {
-        setNotice(kind === 'hangup' ? 'hangupSent' : 'dtmfSent');
-        if (kind === 'hangup') { live.hangupLocked = true; setHangupLocked(true); }
+        call.controls[kind] = kind === 'hangup' ? 'accepted' : undefined;
+        if (kind === 'dtmf') setNotice('dtmfSent');
       }
     } catch (cause) {
-      if (!owns()) return;
-      if (rejected(cause)) setNotice('controlRejected');
-      else if (kind === 'hangup') { live.hangupLocked = true; setHangupLocked(true); setNotice('hangupUnknown'); }
-      else { live.dtmfLocked = true; setDtmfLocked(true); setNotice('dtmfUnknown'); }
+      if (owns()) {
+        if (rejected(cause)) { call.controls[kind] = undefined; setNotice('controlRejected'); }
+        else call.controls[kind] = 'unknown';
+      }
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(attempt.timer);
       if (owns()) {
         controlRef.current = undefined;
         setControl(undefined);
-        void client.invalidateQueries({ queryKey: ['calls'] });
+        readBack();
       }
     }
+  }
+
+  function reviewHangup() {
+    if (!hangupAvailable || !session || !owned || callRecords.get(session) !== owned || activeSession() !== session) return;
+    const modal = hangupDialog.current;
+    if (!modal || modal.open) return;
+    reviewRef.current = { owner: session, call: owned };
+    modal.showModal();
+    cancelHangup.current?.focus();
   }
 
   function submit(event: FormEvent) {
@@ -272,9 +322,9 @@ export function BrowserDialer() {
     if (busy || !selection || !to.trim() || to.trim().length > 64) return;
     void dial({ key: newIdempotencyKey(), simId: selection.sim.id, deviceId: selection.device.id, to: to.trim() }, false);
   }
-  const hangupAvailable = mayControl && (callState === 'awaiting_browser' || callState === 'cell_dialing' || callState === 'bridged');
-  const dtmfAvailable = mayControl && callState === 'bridged' && !dtmfLocked;
-  const shownNotice = (terminal && notice === 'hangupSent' ? undefined : notice) ?? (recovery ? 'reservationUnknown' : owned && !listening && !terminal && !busy ? 'audioLost' : undefined);
+  const recordedControl = owned?.controls.hangup === 'unknown' ? 'hangupUnknown' :
+    owned?.controls.hangup === 'accepted' && !terminal ? 'hangupSent' : owned?.controls.dtmf === 'unknown' ? 'dtmfUnknown' : undefined;
+  const shownNotice = notice ?? (recovery ? 'reservationUnknown' : undefined);
   const canChoose = !!session && availability.isSuccess && deviceIds.length > 0 && canUseAudio;
 
   return <section className="panel" aria-label={t('browserCall.title')}>
@@ -299,20 +349,41 @@ export function BrowserDialer() {
     {owned && <>
       <p role="status">{t('browserCall.observed')}: {t(callState && !summary.isError ? 'browserCall.states.' + callState : 'unknown')}</p>
       {summary.isError && <p role="alert">{t('browserCall.summaryUnavailable')}</p>}
-      <button type="button" className="secondary danger" disabled={!hangupAvailable} onClick={() => { void sendControl('hangup'); }}>{t('action.hangup')}</button>
-      <form onSubmit={event => { event.preventDefault(); void sendControl('dtmf', digits); }}>
+      <button type="button" className="secondary" disabled={!currentOwned || summary.isFetching} onClick={() => { void summary.refetch(); }}>{t('browserCall.refreshStatus')}</button>{' '}
+      <button type="button" className="secondary danger" aria-haspopup="dialog" disabled={!hangupAvailable} onClick={reviewHangup}>{t('action.hangup')}</button>
+      <dialog ref={hangupDialog} aria-labelledby={hangupTitle} aria-describedby={hangupHelp}
+        onCancel={() => { reviewRef.current = undefined; }}
+        onClose={event => { if (!event.currentTarget.open) reviewRef.current = undefined; }}>
+        <h3 id={hangupTitle}>{t('browserCall.confirmHangupTitle')}</h3>
+        <p id={hangupHelp}>{t('browserCall.confirmHangupHelp')}</p>
+        <p>{t('browserCall.observed')}: <bdi>{t(callState && recentSummary ? 'browserCall.states.' + callState : 'unknown')}</bdi></p>
+        <button ref={cancelHangup} type="button" className="secondary" onClick={() => {
+          reviewRef.current = undefined;
+          hangupDialog.current?.close();
+        }}>{t('action.close')}</button>{' '}
+        <button type="button" className="secondary danger" disabled={!hangupAvailable} onClick={() => {
+          if (!hangupDialog.current?.open) return;
+          const target = reviewRef.current;
+          reviewRef.current = undefined;
+          hangupDialog.current?.close();
+          if (target) void sendControl('hangup', target);
+        }}>{t('browserCall.confirmHangup')}</button>
+      </dialog>
+      <form onSubmit={event => { event.preventDefault(); if (session && owned) void sendControl('dtmf', { owner: session, call: owned }, digits); }}>
         <label className="field">{t('browserCall.digits')}<input required value={digits} maxLength={32} inputMode="tel" pattern="[0-9*#]+" disabled={!dtmfAvailable} onChange={event => setDigits(event.target.value)}/></label>
         <button className="secondary" disabled={!dtmfAvailable || !/^[0-9*#]{1,32}$/.test(digits)}>{t('browserCall.sendDtmf')}</button>
       </form>
       {listening && <button type="button" className="secondary" onClick={() => {
-        releaseAudio(attemptRef.current); setListening(false); setNotice('audioLost');
+        releaseAudio(attemptRef.current); setListening(false);
       }}>{t('browserCall.disconnect')}</button>}
+      {!listening && !terminal && !busy && <p role="status">{t('browserCall.audioLost')}</p>}
       {control && <p role="status">{t('loading')}</p>}
       {terminal && <button type="button" className="secondary" onClick={() => {
         if (session && callRecords.get(session) === owned) callRecords.delete(session);
         setOwned(undefined); setNotice(undefined); setTo('');
       }}>{t('browserCall.back')}</button>}
     </>}
-    {shownNotice && <p role={['audioFailed', 'unavailable', 'rejected', 'reservationUnknown', 'audioLost', 'hangupUnknown', 'dtmfUnknown', 'controlRejected'].includes(shownNotice) ? 'alert' : 'status'}>{t('browserCall.' + shownNotice)}</p>}
+    {recordedControl && <p role={recordedControl === 'hangupSent' ? 'status' : 'alert'}>{t('browserCall.' + recordedControl)}</p>}
+    {shownNotice && <p role={['audioFailed', 'unavailable', 'rejected', 'reservationUnknown', 'controlRejected'].includes(shownNotice) ? 'alert' : 'status'}>{t('browserCall.' + shownNotice)}</p>}
   </section>;
 }

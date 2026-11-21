@@ -50,6 +50,12 @@ Core 在获取独占所有权后、监听前，以每事务最多 64 条会话�
 
 自动化测试可显式注入按通话代次运行的内存设备夹具，覆盖过期连接、挂断匹配和媒体开启失败。普通设备模拟器的 Shizuku 状态保持不明。真实 Web 通话仍需要验收名单、实际设备控制和有效的双向音频。[内存通话夹具](../tools/device-simulator/README.md)
 
+### 浏览器通话控制与音频
+
+- 挂断与本地音频分开。只有发起通话的同一管理员会话能在拨号页操作原通话。此页须读回匹配的会话、设备、SIM 与浏览器腿，再确认挂断；读回超过 5 秒、失效或状态不允许时不发送。DTMF 仍要求处于桥接状态且本地音频可用。Core 继续复核所有者、设备连接与信令状态。[拨号界面](../web/src/features/calls/browser-dialer.tsx) · [Core 控制](../core/src/calls/web-calls.ts)
+- 挂断受理或结果未知时，在当前页面运行期间以管理员会话和原通话为范围保留防重记录；同会话切页返回不会补发。超时或离开页面后，迟到的回复不能覆盖本地未知结果。按“刷新通话状态”单独读回；只有持久通话记录才能说明最终状态。本地关闭时不主动发挂断，不把结果写入持久存储；硬刷新或重新登录不会从浏览器恢复控制权。
+- 音频鉴权文本先发，之后按每个 652 字节 PCM 消息检查 WebSocket 的 `bufferedAmount`，含仍排队的鉴权数据。加上本帧会超过 4 KiB 时直接丢弃，但推进 uint32 序号；无重放或自动重连。这是浏览器 API 可见的应用字节限制，不含底层缓冲或端到端时延。发出鉴权消息不等于 Core 已确认认证，更不等于双向音频已建立。[音频传输](../web/src/audio/media-transport.ts)
+
 ### 媒体接收与断流
 
 Core 按接收端单调时钟计算帧到达后的年龄；待鉴权和待播放的帧超过 300 ms 即丢弃，这不是端到端延迟承诺。5 秒鉴权截止在处理认证结果或消息时直接检查，不依赖超时回调先执行。抖动缓冲最多保留 15 个序号槽，丢弃的样本不会因为重复发送而重新计时。长间隔后用向前推进的序号重新缓冲。已认证且仍获授权的每条通话腿独立检查：接入或最近一次新帧入队满 2 秒后，可记录一次 `media_stalled`，直至下一帧成功入队。日志包含会话 ID、腿 ID 和诊断名，不写媒体内容或凭据。缺帧补静音；断流本身不触发挂断，也不证明通话已经结束或真机双向音频已经验收。[传输](../core/src/media/transport.ts) · [缓冲](../core/src/media/jitter.ts) · [协调](../core/src/calls/web-calls.ts)
@@ -136,6 +142,12 @@ Call controls recheck the administrator session, device connection and call stat
 After acquiring exclusive ownership and before listening, Core reconciles at most 64 locked call sessions per transaction. It advances by immutable ID after a confirmed commit. An unconfirmed commit stops startup rather than redialling or sending hangup. An awaiting-browser state alone is not proof of no dial: the original reservation and identity events, two unused legs, and the absence of attempts and action evidence are required. Missing proof leaves the outcome unknown, and an unknown Web call continues to block a new dial on that device. Browser arming checks the 30-second cutoff against the database clock after locking. A background pass checks up to 16 expired reservations, skips contended locks, and revisits after wrapping. Session, legs and event change in one transaction; best-effort notification follows confirmed commit. The sweep has no device or media command path. [Startup reconciliation](../core/src/calls/reconcile.ts) · [Reservation sweep](../core/src/calls/web-reservations.ts)
 
 Offline tests can inject a generation-aware in-memory device fixture to exercise replaced connections, exact hangup matching and failed media setup. The ordinary simulator reports Shizuku as unknown. Real Web calling still requires a verified allowlist, physical device control and working two-way audio. [In-memory call fixture](../tools/device-simulator/README.md)
+
+### Browser call control and audio
+
+- Hangup is independent of local audio. Only the administrator session that opened the call can request hangup from its dialer. It must read back the matching session, device, SIM and browser leg and explicitly confirm. A read older than five seconds, invalidated, or in an ineligible state does not authorize the request. DTMF still needs a bridged call and usable local audio. Core continues to recheck ownership, the device attachment, and signalling state. [Dialer](../web/src/features/calls/browser-dialer.tsx) · [Core control](../core/src/calls/web-calls.ts)
+- An accepted or uncertain hangup retains an in-memory lock for the original call and administrator session across route changes. A late reply cannot overwrite an uncertain result after timeout or navigation. Use Refresh call status to read back the stored outcome separately. Closing local audio does not send hangup. The browser does not restore controls after a full reload or a new login.
+- The authentication text is sent first. Each 652-byte PCM message then checks WebSocket `bufferedAmount`, including any queued authentication bytes. A chunk that would exceed 4 KiB is dropped while advancing the uint32 sequence. Drops are not replayed and the transport does not reconnect. The bound covers application bytes visible to the browser API, not lower-layer buffers or end-to-end latency. Sending auth does not prove that Core accepted the attachment or that two-way audio works. [Audio transport](../web/src/audio/media-transport.ts)
 
 ### Media receive timing and stalls
 
