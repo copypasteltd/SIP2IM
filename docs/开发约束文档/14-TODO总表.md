@@ -88,7 +88,7 @@
 | C-MED-02 | 重采样 8k/16k/48k（自写） | C-MED-01 | — | K08 §3.5 | 1 kHz 正弦往返误差在阈值内 | TODO |
 | C-MED-03 | /ws/media：设备头认证、浏览器首条消息认证、关闭码、media_stalled | C-MED-01, C-DEV-02 | — | K05 §4 | 假设备、鉴权截止、接收年龄和断流已有离线回归；待真机验收 | REVIEW |
 | C-MED-04 | 早期媒体判定（50 帧平均 RMS）与提示语音播放器 | C-MED-01, TL-PROMPT-01 | C-13, FR-OUT-07 | K08 §3.5 | 有/无早期媒体、被叫接听后停止提示 | TODO |
-| C-CH-01 | channels：两个 IPC socket 服务端、adapter.hello、capabilities、account.state、断线 | P-03, C-DB-02 | C-12, FR-PAIR-01 | K08 §3.9、K05 §5 | 假适配器连接/断开测试 | TODO |
+| C-CH-01 | channels：两个 IPC socket 服务端、adapter.hello、capabilities、account.state、断线 | P-03, C-DB-02 | C-12, FR-PAIR-01 | K08 §3.9、K05 §5 | 握手原子提交、代次替换及通知隔离已做离线回归；待实库和真实适配器验收 | REVIEW |
 | C-CH-02 | 通道登录接口与 login.step 推送、voice-verified 接口、来电平台设置 | C-CH-01, C-SET-01, C-WSA-01 | FR-PAIR-01/02 | K05 §6.2 | 接口测试 | TODO |
 | C-MED-05 | 适配器音频腿：audioChannel 分配与回收、0x02 帧路由、48k 重采样 | C-MED-02, C-CH-01 | — | K05 §5.1、K08 §3.5 | 假适配器音频往返 | TODO |
 | C-NOT-01 | notify：按 i18n 渲染、发给单个/两个配对用户、platform_message 记录 | C-CH-01, C-I18N-01 | C-15 | K08 §3.11 | 发送与记录测试 | TODO |
@@ -223,7 +223,7 @@
 | DEC | 1 | 0 | 1 | 0 | 0 | 0 |
 | ENV | 11 | 3 | 0 | 0 | 0 | 0 |
 | P | 7 | 0 | 0 | 0 | 0 | 0 |
-| C | 45 | 0 | 0 | 1 | 6 | 0 |
+| C | 45 | 0 | 0 | 1 | 7 | 0 |
 | A | 18 | 0 | 0 | 0 | 0 | 0 |
 | W | 16 | 0 | 0 | 0 | 0 | 0 |
 | T | 7 | 0 | 0 | 0 | 0 | 0 |
@@ -231,4 +231,4 @@
 | TL | 4 | 0 | 0 | 0 | 0 | 0 |
 | D | 7 | 0 | 0 | 0 | 0 | 0 |
 | G | 9 | 0 | 0 | 0 | 0 | 0 |
-| 合计 | 132 | 3 | 1 | 1 | 6 | 0 |
+| 合计 | 132 | 3 | 1 | 1 | 7 | 0 |

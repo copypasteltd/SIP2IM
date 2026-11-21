@@ -114,6 +114,34 @@ describe('adapter manager', () => {
     manager.close();
   });
 
+  it('does not wait for a prompt subscriber and retires its evidence when the same connection reports completion', async () => {
+    let release!: () => void;
+    const wait = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const delivery = new Promise<void>(resolve => { entered = resolve; });
+    let current: (() => boolean) | undefined;
+    const onLoginStep = vi.fn(async (_platform, _step, _generation, guard: () => boolean) => {
+      current = guard;
+      entered();
+      await wait;
+    });
+    const manager = new AdapterManager({ onEvent: async () => {}, onDisconnect: async () => {}, onLoginStep });
+    try {
+      const s = socket(), connection = manager.attach('telegram', s);
+      startup(connection, 'telegram', 'login_pending');
+      connection.data(step());
+      await delivery;
+      expect(manager.loginStep('telegram')).toMatchObject({ step: 'code' });
+      expect(current?.()).toBe(true);
+      expect(read(s.write.mock.calls[3]![0]).payload).toEqual({refId:id(4),ok:true,error:null});
+      connection.data(account('logged_in',5,'fixture'));
+      expect(current?.()).toBe(false);
+      await tick();
+      expect(read(s.write.mock.calls[4]![0]).payload).toEqual({refId:id(5),ok:true,error:null});
+      expect(manager.loginStep('telegram')).toBeNull();
+    } finally { release(); manager.close(); }
+  });
+
   it('accepts an exact late positive ACK once on the same live connection only', async () => {
     vi.useFakeTimers();
     const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}},5);

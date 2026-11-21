@@ -75,6 +75,12 @@ Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系
 
 当前发布范围是管理端告警读回与最佳努力的实时通知。配对用户的 QQ/Telegram 告警转发和定期重推尚未接通。生产 PostgreSQL 和真实设备验收仍需独立完成。
 
+### 平台适配器握手和通知
+
+- 当前 IPC 连接依次处理 `adapter.hello`、`capabilities`、`account.state`。初始能力仅暂存在 Core；首条账号状态与有效登录能力、既有登录观察标记及适用的渠道告警在同一行锁事务中写入，确认提交后才给最终状态正向 ACK。随后能力更新只保留有效登录位，平台收发消息、语音和并发通话能力均关闭。启动、替换和断开仍按原规则区分重置与已观测掉线。Core 的 IPC 就绪不代表已登录或账号身份已验证。[渠道存储](../core/src/channels/repo.ts) · [连接管理](../core/src/channels/adapter-manager.ts)
+- 写入复核进程所有权和当前连接，提交命令发出前再检查一次。检查不能撤销已经发出的数据库提交；结果不明或清理失败仍作为失败或未知交由原有逻辑处理，不自动重发账号控制请求。
+- 管理广播独立于报告处理：每平台一个在途通知任务，频道、告警、登录步骤各一个最新提示槽。提示可能合并或丢失，旧连接或已失效的挑战不会在发送前仍通过校验。关停冻结新通知并等待已开始的任务。通过管理接口重新读取状态和操作记录；现有 Web 不会自动取回错过的登录步骤。[运行时](../core/src/channels/adapter-runtime.ts) · [恢复边界](platform-login-recovery.md)
+
 ### 异常短信托管
 
 `VOIPGW_SMS_CUSTODY_MODE` 默认 `disabled`。在任何托管模式下，正常短信仍走正常入库路径。下表只描述可被识别和保留的异常事件。
@@ -167,6 +173,12 @@ The single Core process periodically reconciles four device health alerts. An of
 The Alerts page reads and refreshes only its current page (50 records); the dashboard requests the five newest open alerts. Cursors preserve database microseconds and record IDs, and are bound to the selected state. They do not provide a cross-request snapshot: return to Latest to see records added before the cursor. The legacy request without `limit` and `cursor` continues to read all matching records. Upgrade Core before serving the new Web bundle; the new Web does not fall back to an unpaged read. The page size bounds returned rows, not database work; large production queries still need plan verification. Acknowledgement rechecks the original administrator session, updates an open alert, and writes the audit record in one transaction. Acknowledged does not mean recovered. After `TIMEOUT_UNKNOWN`, read the alert and audit log separately before any further action. [Alert repository](../core/src/alerts/admin-repo.ts)
 
 This release provides administrator readback and best-effort realtime events. Forwarding and periodic redelivery to paired QQ or Telegram users are not connected. Production PostgreSQL and physical-device acceptance remain separate.
+
+### Adapter handshake and notifications
+
+- The current IPC attachment reports `adapter.hello`, `capabilities`, and `account.state` in order. Core stages the initial capability report in memory. The first state report writes the account state, effective login capability, prior-login marker, and applicable channel alert in one row-locked transaction. The final positive ACK follows confirmed persistence. Later capability writes retain only the effective login bit; platform messaging, audio, and calling stay disabled. Startup, replacement, and disconnect still distinguish a reset from an observed outage. Core IPC readiness is not proof of login or verified account identity. [Channel repository](../core/src/channels/repo.ts) · [Connection manager](../core/src/channels/adapter-manager.ts)
+- Writes recheck process ownership and the current attachment, including just before issuing COMMIT. This fence cannot cancel a commit already in flight. Unconfirmed outcomes and cleanup failures retain their existing uncertainty; Core does not replay account commands.
+- Admin broadcasts run separately: one in-flight notification per platform and a latest slot each for channel, alert, and login-step hints. Hints can be coalesced or missed. Stale generations or retired prompts are filtered at send time. Shutdown freezes notification admission and drains work already started. Read back state and operations separately; the current Web UI does not automatically retrieve a missed login prompt. [Runtime](../core/src/channels/adapter-runtime.ts) · [Recovery boundaries](platform-login-recovery.md)
 
 ### Exceptional SMS custody
 

@@ -15,16 +15,17 @@ export class AdminHub {
     try { socket.close(code); } catch { /* A failed subscriber cannot interrupt other broadcasts. */ }
   }
 
-  publish(type: string, data: unknown): Promise<void> {
-    return this.publishLatest(type, () => data);
+  publish(type: string, data: unknown, isCurrent?: () => boolean): Promise<void> {
+    return this.publishLatest(type, () => data, isCurrent);
   }
 
-  publishLatest(type: string, load: () => unknown | Promise<unknown>): Promise<void> {
+  publishLatest(type: string, load: () => unknown | Promise<unknown>, isCurrent: () => boolean = () => true): Promise<void> {
     if (!this.accepting || this.sockets.size === 0) return Promise.resolve();
+    const current = () => this.accepting && isCurrent();
     const work = Promise.resolve().then(async () => {
-      if (!this.accepting) return;
+      if (!current()) return;
       const data = await load();
-      if (data !== null && this.accepting) await this.broadcast(type, data);
+      if (data !== null && current()) await this.broadcast(type, data, current);
     }).finally(() => this.pending.delete(work));
     this.pending.add(work);
     return work;
@@ -36,18 +37,16 @@ export class AdminHub {
     await Promise.allSettled([...this.pending]);
   }
 
-  private async broadcast(type: string, data: unknown): Promise<void> {
+  private async broadcast(type: string, data: unknown, current: () => boolean): Promise<void> {
     const body = JSON.stringify({ type, ts: Date.now(), data });
     await Promise.all([...this.sockets].map(async ([socket, token]) => {
-      try {
-        if (!await this.authenticate(token)) {
-          this.disconnect(socket, token, 4403);
-          return;
-        }
-        if (this.sockets.get(socket) === token) socket.send(body);
-      } catch {
-        this.disconnect(socket, token, 1011);
-      }
+      if (!current()) return;
+      let user: string | null;
+      try { user = await this.authenticate(token); }
+      catch { if (current()) this.disconnect(socket, token, 1011); return; }
+      if (!current() || this.sockets.get(socket) !== token) return;
+      if (!user) { this.disconnect(socket, token, 4403); return; }
+      try { socket.send(body); } catch { this.disconnect(socket, token, 1011); }
     }));
   }
 }

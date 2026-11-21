@@ -165,8 +165,8 @@ platform_dialing 的事件：
 
 ### 3.9 channels
 
-- ipc-server.ts 在两个 socket 上监听；适配器断开 → 通道 state = offline，相关会话进入 ending。
-- voice_verified 只由 `PUT /api/channels/:platform/voice-verified` 修改（写操作日志）。voice_verified = false 时 calls 不向该通道路由语音（CHANNEL_UNAVAILABLE），消息收发不受影响。
+- [适配器监听器](../../core/src/adapters/ipc-listener.ts) 对启用的平台监听各自的本地 IPC。新连接先重置频道读回，再依次接收 hello、能力和账号状态；初始状态、有效登录能力和适用告警同事务提交。断开时清理对应代次并记录离线，根据已观测登录与停机原因决定是否开启告警。
+- 生产仅接通账号控制，平台消息、配对启用和语音仍关闭；不能由监听状态或能力报告推断已登录。管理广播在单独的有界队列运行，可能合并提示且不改变已提交报告的 ACK。发送前复核当前代次、提示和管理员会话。
 - 来电平台由 setting inbound_platform 决定；**不提供改转另一平台的选项**（需求 12 S01 已采用“不改转”）。
 
 ### 3.10 pairing 与 commands

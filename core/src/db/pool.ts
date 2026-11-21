@@ -12,7 +12,8 @@ export class TransactionReleaseFailed extends Error {
   constructor(cause: unknown) { super('Transaction committed but client release failed', { cause }); this.name = 'TransactionReleaseFailed'; }
 }
 
-export async function transaction<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+export async function transaction<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => Promise<T>,
+  beforeCommit?: () => void): Promise<T> {
   const client = await pool.connect();
   let failed = false;
   let failure: unknown;
@@ -21,6 +22,8 @@ export async function transaction<T>(pool: pg.Pool, fn: (client: pg.PoolClient) 
   try {
     await client.query('BEGIN');
     result = await fn(client);
+    // A synchronous admission fence runs with no await between it and COMMIT.
+    beforeCommit?.();
     committing = true;
     const commit = await client.query('COMMIT');
     if (commit.command === 'ROLLBACK') {

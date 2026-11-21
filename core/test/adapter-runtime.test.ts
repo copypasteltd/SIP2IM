@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { IpcDecoder, decodeAdapterJson, encodeAdapterJson, encodeIpcFrame } from '@voipgw/protocol';
-import { AdapterRuntime, type AdapterRuntimeRepository } from '../src/channels/adapter-runtime.js';
+import { AdapterRuntime, type AdapterRuntimeOptions, type AdapterRuntimeRepository } from '../src/channels/adapter-runtime.js';
 import type { AdapterTransportHandlers, AdapterTransportSocket } from '../src/adapters/ipc-listener.js';
 
 type Platform = 'qq' | 'telegram';
@@ -10,15 +10,43 @@ const tick = () => new Promise(resolve=>setTimeout(resolve,0));
 const hello=(platform:Platform,n=1)=>frame('adapter.hello',{platform,adapterVersion:'fake',protocol:1},n);
 const state=(name:string|null,n:number,status='logged_in')=>frame('account.state',{state:status,selfId:name,alias:null,detail:null},n);
 const capability=(n:number,login=true)=>frame('capabilities',{login,sendMessage:true,receiveMessage:true,dial:true,receiveAudio:true,sendAudio:true,maxConcurrentCalls:1},n);
-function setup() {
+const effective=(login:boolean)=>({login,sendMessage:false,receiveMessage:false,dial:false,receiveAudio:false,sendAudio:false,maxConcurrentCalls:0});
+const positive=(n:number)=>({refId:'ipc_'+String(n).padStart(26,'0'),ok:true,error:null});
+const loginStep=(n:number,step='code')=>frame('login.step',{step,qrPngBase64:null,hint:null},n);
+const acks=(peer:{writes:Uint8Array[]})=>peer.writes.map(bytes=>read(bytes).payload);
+const deferred=<T>()=>{let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>resolve=r);return{resolve,promise};};
+const bootstrap=(peer:{connection:AdapterTransportHandlers},platform:Platform,name:string|null,login=true,status='logged_in')=>{
+  peer.connection.data(hello(platform));peer.connection.data(capability(2,login));peer.connection.data(state(name,3,status));
+};
+function setup(options: Pick<AdapterRuntimeOptions,'stopping'|'ownsDatabase'> = {}) {
   const rows:Record<Platform,{platform:Platform;state:string;selfId:string|null;capabilities:unknown}>={qq:{platform:'qq',state:'logged_in',selfId:null,capabilities:{}},telegram:{platform:'telegram',state:'logged_in',selfId:null,capabilities:{}}};
-  const repo:AdapterRuntimeRepository={list:vi.fn(async()=>Object.values(rows).map(row=>({...row}))),adapterOffline:vi.fn(async (p:Platform)=>{rows[p].state='offline';rows[p].capabilities={};}),adapterState:vi.fn(async(p:Platform,s:{state:string;selfId:string|null;alias:string|null})=>{rows[p].state=s.state;rows[p].selfId=s.selfId;}),adapterCapabilities:vi.fn(async(p:Platform,c:unknown)=>{rows[p].capabilities=c;})};
+  const repo:AdapterRuntimeRepository={
+    list:vi.fn(async()=>Object.values(rows).map(row=>({...row}))),
+    adapterOffline:vi.fn<AdapterRuntimeRepository['adapterOffline']>(async(p,opts)=>{
+      if (opts?.isCurrent && !opts.isCurrent()) return;
+      rows[p].state='offline';rows[p].capabilities={};
+    }),
+    adapterState:vi.fn<AdapterRuntimeRepository['adapterState']>(async(p,s,opts)=>{
+      if (opts?.isCurrent && !opts.isCurrent()) return;
+      rows[p].state=s.state;rows[p].selfId=s.selfId;
+      if (opts?.initialLoginSupport !== undefined) rows[p].capabilities=effective(opts.initialLoginSupport);
+    }),
+    adapterCapabilities:vi.fn<AdapterRuntimeRepository['adapterCapabilities']>(async(p,c,opts)=>{
+      if (opts?.isCurrent && !opts.isCurrent()) return;
+      rows[p].capabilities=effective((c as {login:boolean}).login);
+    }),
+  };
   const connections=new Map<string,(socket:AdapterTransportSocket)=>AdapterTransportHandlers>();
-  const publish=vi.fn(async(_type:string,_data:unknown)=>{});
-  const runtime=new AdapterRuntime({repository:repo,publish,adapters:{qq:{enabled:true,socket:'qq'},telegram:{enabled:true,socket:'telegram'}},listenerFactory:({path,onConnection})=>{connections.set(path,onConnection);return {start:async()=>{},close:async()=>{}};}});
+  const publish=vi.fn<AdapterRuntimeOptions['publish']>(async()=>{});
+  const listeners:Array<{start:ReturnType<typeof vi.fn>;close:ReturnType<typeof vi.fn>}>=[];
+  const runtime=new AdapterRuntime({repository:repo,publish,...options,adapters:{qq:{enabled:true,socket:'qq'},telegram:{enabled:true,socket:'telegram'}},listenerFactory:({path,onConnection})=>{
+    connections.set(path,onConnection);
+    const listener={start:vi.fn(async()=>{}),close:vi.fn(async()=>{})};listeners.push(listener);return listener;
+  }});
   const peer=(platform:Platform)=>{const writes:Uint8Array[]=[];const socket={write:(data:Uint8Array)=>writes.push(data),destroy:vi.fn()};return {writes,connection:connections.get(platform)!(socket),socket};};
-  return {runtime,repo,publish,rows,peer};
+  return {runtime,repo,publish,rows,peer,listeners};
 }
+
 describe('adapter lifecycle cleanup',()=>{
   const makeRuntime=(listeners: {start:()=>Promise<void>;close:()=>Promise<void>}[])=>{
     const repo:AdapterRuntimeRepository={list:vi.fn(async()=>[]),adapterOffline:vi.fn(async()=>{}),adapterState:vi.fn(async()=>{}),adapterCapabilities:vi.fn(async()=>{})};
@@ -85,7 +113,7 @@ describe('adapter integration',()=>{
     a.connection.data(state(null,3,'login_pending'));a.connection.data(frame('login.step',{step:'code',qrPngBase64:null,hint:'enter code'},4));
     a.connection.data(frame('message.received',{platformMessageId:'m',senderId:'u',senderName:null,chatType:'private',forwarded:false,isContact:true,text:'test',ts:1},5));await tick();
     expect(rows.qq).toMatchObject({state:'login_pending',selfId:null,capabilities:{login:true,sendMessage:false,receiveMessage:false,dial:false,receiveAudio:false,sendAudio:false,maxConcurrentCalls:0}});
-    expect(publish).toHaveBeenCalledWith('channel.login.step',{platform:'qq',step:'code',qrPngBase64:null,hint:'enter code'});
+    expect(publish).toHaveBeenCalledWith('channel.login.step',{platform:'qq',step:'code',qrPngBase64:null,hint:'enter code'},expect.any(Function));
     expect(read(a.writes[4]!).payload).toEqual({refId:'ipc_'+String(5).padStart(26,'0'),ok:false,error:'CAPABILITY_UNSUPPORTED'});
     expect(runtime.manager.loginStep('qq')).toEqual({step:'code',qrPngBase64:null,hint:'enter code'});
     a.connection.close();await tick();expect(rows.qq.state).toBe('offline');expect(runtime.manager.loginStep('qq')).toBeNull();await runtime.close();
@@ -94,16 +122,169 @@ describe('adapter integration',()=>{
     const {runtime,repo,peer,publish}=setup();
     const offline=vi.mocked(repo.adapterOffline);
     await runtime.start();
-    expect(offline).toHaveBeenCalledWith('qq',{observeOutage:'persisted-login'});
+    expect(offline).toHaveBeenCalledWith('qq',{observeOutage:'persisted-login',isCurrent:expect.any(Function)});
     const a=peer('qq');a.connection.data(hello('qq'));a.connection.data(capability(2));
     a.connection.data(state('fixture',3));await tick();
     expect(offline).toHaveBeenCalledWith('qq',{observeOutage:false,isCurrent:expect.any(Function)});
     offline.mockResolvedValueOnce({type:'alert.raised',data:{id:'fixture'}});
     a.connection.close();await tick();
     expect(offline).toHaveBeenCalledWith('qq',{observeOutage:true,isCurrent:expect.any(Function)});
-    expect(publish).toHaveBeenCalledWith('alert.raised',{id:'fixture'});
+    expect(publish).toHaveBeenCalledWith('alert.raised',{id:'fixture'},expect.any(Function));
     await runtime.close();
   });
+  it.each([true, false])('waits for the single committed bootstrap before the final ACK (login=%s)',async login=>{
+    const {runtime,repo,rows,peer}=setup(); await runtime.start();
+    const original=repo.adapterState;
+    const entered=deferred<void>(), commit=deferred<void>();
+    repo.adapterState=vi.fn(async (platform,report,options)=>{
+      if (report.selfId === 'first') {
+        expect(options?.initialLoginSupport).toBe(login);
+        entered.resolve(); await commit.promise;
+      }
+      return original(platform,report,options);
+    });
+    const client=peer('qq');bootstrap(client,'qq','first',login);
+    try {
+      await entered.promise;
+      expect(acks(client)).toEqual([positive(1),positive(2)]);
+      expect(runtime.manager.status('qq')).toBe('unknown');
+      expect(rows.qq).toMatchObject({state:'offline',capabilities:{}});
+      expect(repo.adapterCapabilities).not.toHaveBeenCalled();
+      commit.resolve(); await tick();
+      expect(acks(client)).toEqual([positive(1),positive(2),positive(3)]);
+      expect(runtime.manager.status('qq')).toBe('online');
+      expect(rows.qq).toMatchObject({state:'logged_in',selfId:'first',capabilities:effective(login)});
+      client.connection.data(state('second',4));
+      await tick();
+      expect(repo.adapterState).toHaveBeenLastCalledWith('qq',expect.objectContaining({ selfId:'second' }),{isCurrent:expect.any(Function)});
+      expect(rows.qq.capabilities).toEqual(effective(login));
+      client.connection.data(capability(5,!login)); await tick();
+      expect(repo.adapterCapabilities).toHaveBeenCalledExactlyOnceWith('qq',{login:!login},{isCurrent:expect.any(Function)});
+      expect(acks(client)).toEqual([1,2,3,4,5].map(positive));
+      expect(rows.qq.capabilities).toEqual(effective(!login));
+    } finally { commit.resolve(); await runtime.close(); }
+  });
+
+  it('does not ACK a failed bootstrap as ready or publish the failed report',async()=>{
+    const {runtime,repo,publish,rows,peer}=setup(); await runtime.start();
+    vi.mocked(repo.adapterState).mockRejectedValueOnce(new Error('bootstrap commit not confirmed'));
+    const client=peer('qq'); bootstrap(client,'qq','failed'); await tick();
+    try {
+      expect(acks(client)).toEqual([positive(1),positive(2),{...positive(3),ok:false,error:'INTERNAL'}]);
+      expect(client.socket.destroy).toHaveBeenCalledOnce();
+      expect(runtime.manager.status('qq')).toBe('offline');
+      expect(repo.adapterCapabilities).not.toHaveBeenCalled();
+      expect(rows.qq).toMatchObject({state:'offline',capabilities:{}});
+      expect(publish.mock.calls.some(([,data])=>(data as {selfId?:string})?.selfId==='failed')).toBe(false);
+    } finally { await runtime.close(); }
+  });
+
+  it('keeps report ACKs and confirmed login steps independent of failed readback or fanout',async()=>{
+    const {runtime,repo,publish,peer}=setup(); await runtime.start();
+    vi.mocked(repo.list).mockRejectedValueOnce(new Error('readback unavailable'));
+    publish.mockRejectedValue(new Error('notification unavailable'));
+    const client=peer('qq'); bootstrap(client,'qq',null,true,'login_pending');
+    client.connection.data(loginStep(4));
+    client.connection.data(capability(5));
+    client.connection.data(state(null,6,'login_pending'));
+    client.connection.data(loginStep(7,'password'));
+    await tick();
+    try {
+      expect(acks(client)).toEqual([1,2,3,4,5,6,7].map(positive));
+      expect(runtime.manager.status('qq')).toBe('online');
+      expect(runtime.manager.loginStep('qq')).toEqual({step:'password',qrPngBase64:null,hint:null});
+      expect(client.socket.destroy).not.toHaveBeenCalled();
+      expect(publish).toHaveBeenCalled();
+    } finally { await runtime.close(); }
+  });
+
+  it('coalesces a backlog behind a slow publication without delaying reports for either platform',async()=>{
+    const {runtime,repo,publish,rows,peer}=setup(); await runtime.start();
+    const firstRead=deferred<void>(), releaseRead=deferred<void>();
+    vi.mocked(repo.list).mockImplementationOnce(async()=>{firstRead.resolve(); await releaseRead.promise; return Object.values(rows);});
+    const qq=peer('qq');bootstrap(qq,'qq','first');
+    try {
+      await firstRead.promise; await tick();
+      expect(acks(qq)).toEqual([1,2,3].map(positive));
+      for(let i=4;i<=11;i++) qq.connection.data(state('observed-'+i,i));
+      const tg=peer('telegram');bootstrap(tg,'telegram','other');await tick();
+      expect(acks(qq)).toEqual(Array.from({length:11},(_,i)=>positive(i+1)));
+      expect(acks(tg)).toEqual([1,2,3].map(positive));
+      expect(publish.mock.calls.some(([type,data])=>type==='channel.updated'&&(data as {platform:string}).platform==='qq')).toBe(false);
+      releaseRead.resolve(); await tick();
+      const notices=publish.mock.calls.filter(([type,data])=>type==='channel.updated'&&(data as {platform:string}).platform==='qq');
+      expect(notices).toHaveLength(1);
+      expect(notices[0]?.[1]).toMatchObject({selfId:'observed-11'});
+    } finally { releaseRead.resolve(); await runtime.close(); }
+  });
+
+  it('fences an in-flight login prompt on replacement and preserves ACK ordering',async()=>{
+    const {runtime,publish,peer}=setup(); await runtime.start();
+    const first=peer('qq');bootstrap(first,'qq',null,true,'login_pending');
+    await tick(); publish.mockClear();
+    const entered=deferred<void>(), send=deferred<void>();
+    const delivered:string[]=[];
+    publish.mockImplementation(async(type,data,current)=>{
+      if(type==='channel.login.step') {
+        expect(acks(first)).toContainEqual(positive(4));
+        entered.resolve(); await send.promise;
+        if(current()) delivered.push((data as {step:string}).step);
+      }
+    });
+    first.connection.data(loginStep(4));
+    try {
+      await entered.promise;
+      const replacement=peer('qq');bootstrap(replacement,'qq','new'); await tick();
+      expect(acks(replacement)).toEqual([1,2,3].map(positive));
+      expect(runtime.manager.loginStep('qq')).toBeNull();
+      send.resolve(); await tick();
+      expect(delivered).toEqual([]);
+    } finally { send.resolve(); await runtime.close(); }
+  });
+
+  it('starts no new listeners when Core stops during startup reconciliation',async()=>{
+    const controller=new AbortController();
+    const {runtime,repo,listeners}=setup({stopping:controller.signal});
+    const entered=deferred<void>(), release=deferred<void>();
+    vi.mocked(repo.adapterOffline).mockImplementation(async(_p,options)=>{
+      entered.resolve(); await release.promise;
+      expect(options?.isCurrent?.()).toBe(false);
+    });
+    const starting=runtime.start();
+    try {
+      await entered.promise; controller.abort();
+      const socket={write:vi.fn(),destroy:vi.fn()};
+      expect(()=>runtime.manager.attach('qq',socket)).toThrow('manager closed');
+      expect(socket.destroy).toHaveBeenCalledOnce();
+      release.resolve(); await starting;
+      expect(listeners.every(l=>l.start.mock.calls.length===0)).toBe(true);
+    } finally { release.resolve(); await runtime.close(); }
+  });
+
+  it('drains an already-started notification while closing admission synchronously',async()=>{
+    const {runtime,repo,rows,peer,publish}=setup(); await runtime.start();
+    const client=peer('qq'); bootstrap(client,'qq','ready'); await tick();
+    const entered=deferred<void>(), release=deferred<void>();
+    const delivered=vi.fn();
+    publish.mockImplementationOnce(async(_type,_data,current)=>{
+      entered.resolve(); await release.promise;
+      if(current()) delivered();
+    });
+    client.connection.data(state('last',4));
+    const closed=vi.fn();
+    try {
+      await entered.promise;
+      const stopping=runtime.close().then(closed);
+      await tick();
+      expect(acks(client)).toContainEqual(positive(4));
+      expect(closed).not.toHaveBeenCalled();
+      expect(vi.mocked(repo.adapterOffline)).toHaveBeenLastCalledWith('qq',{observeOutage:false,isCurrent:expect.any(Function)});
+      expect(rows.qq.state).toBe('offline');
+      release.resolve(); await stopping; expect(closed).toHaveBeenCalledOnce();
+      expect(delivered).not.toHaveBeenCalled();
+    } finally { release.resolve(); await runtime.close(); }
+  });
+
   it('rejects new attachments and starts as soon as shutdown begins',async()=>{
     const {runtime,peer}=setup(); await runtime.start(); const active=peer('qq'); active.connection.data(hello('qq')); await tick();
     const closing=runtime.close(); const socket={write:vi.fn(),destroy:vi.fn()};
@@ -113,7 +294,7 @@ describe('adapter integration',()=>{
   it('serializes a replacement behind old in-flight writes and fences old publication',async()=>{
     const {runtime,repo,rows,peer,publish}=setup();await runtime.start();let release!:()=>void;let entered!:()=>void;
     const enteredPromise=new Promise<void>(r=>entered=r);const gate=new Promise<void>(r=>release=r);
-    const original=repo.adapterState;repo.adapterState=vi.fn(async(p,s)=>{if(s.selfId==='old'){entered();await gate;}await original(p,s);});
+    const original=repo.adapterState;repo.adapterState=vi.fn(async(p,s,opts)=>{if(s.selfId==='old'){entered();await gate;}await original(p,s,opts);});
     const old=peer('qq');old.connection.data(hello('qq'));old.connection.data(capability(2));old.connection.data(state('old',3));await enteredPromise;
     const replacement=peer('qq');replacement.connection.data(hello('qq',4));replacement.connection.data(capability(5));replacement.connection.data(state('new',6));
     const other=peer('telegram');other.connection.data(hello('telegram',7));other.connection.data(capability(8));other.connection.data(state('other',9));await tick();expect(rows.telegram.selfId).toBe('other');

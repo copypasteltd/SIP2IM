@@ -257,7 +257,11 @@ const incomingOutbox=new IncomingSmsOutbox(pool,(type,data)=>hub.publish(type,da
 const flushIncoming=()=>{void incomingOutbox.flush().catch(error=>app.log.error({err:error},'incoming SMS notification dispatch failed'));};
 transportLifecycle.defer(()=>incomingOutbox.stop(),{critical:true});
 flushIncoming();
-adapterRuntime = new AdapterRuntime({repository:channels,adapters:config.adapters,publish:(type,data)=>hub.publish(type,data)});
+adapterRuntime = new AdapterRuntime({
+  repository: channels, adapters: config.adapters, stopping,
+  ownsDatabase: () => { try { ownership.assertHeld(); return true; } catch { return false; } },
+  publish: (type, data, isCurrent) => hub.publish(type, data, isCurrent),
+});
 transportLifecycle.defer(()=>adapterRuntime.close(),{critical:true});
 await adapterRuntime.start();
 if (stopping.aborted) return;

@@ -22,7 +22,7 @@ export interface AdapterManagerDeps {
   onEvent(platform: AdapterPlatform, message: Message, generation: number): Promise<void>;
   onDisconnect(platform: AdapterPlatform, generation: number): Promise<void>;
   onAttach?(platform: AdapterPlatform, generation: number): void;
-  onLoginStep?(platform: AdapterPlatform, step: AdapterLoginStep, generation: number): Promise<void>;
+  onLoginStep?(platform: AdapterPlatform, step: AdapterLoginStep, generation: number, isCurrent: () => boolean): void | Promise<void>;
 }
 
 export class UnsupportedAdapterEvent extends Error {}
@@ -170,7 +170,14 @@ class Session {
     if (!this.active) return;
     if (initializing && ack.ok) this.phase++;
     if ((initializing || controlReport) && !ack.ok) { this.stop(); return; }
-    if (prompt) await this.deps.onLoginStep?.(this.platform, { ...prompt }, this.generation).catch(() => {});
+    if (prompt) {
+      const accepted = prompt;
+      const isCurrent = () => this.isReady() && this.controlReports === 0 && this.step === accepted;
+      try {
+        const enqueue = this.deps.onLoginStep?.(this.platform, { ...accepted }, this.generation, isCurrent);
+        void Promise.resolve(enqueue).catch(() => {});
+      } catch { /* Notification is optional and cannot undo the ACK. */ }
+    }
   }
   private assertLoginReady(): void {
     if (!this.isReady() || this.controlReports !== 0) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');

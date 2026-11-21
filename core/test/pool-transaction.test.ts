@@ -30,6 +30,20 @@ describe('transaction', () => {
     expect(f.release).toHaveBeenCalledOnce();
     expect(f.release).toHaveBeenCalledWith();
   });
+  it('checks the synchronous fence after work settles and rolls back without issuing COMMIT', async () => {
+    const f = fake();
+    const obsolete = new Error('authority changed');
+    let current = true;
+    const fence = vi.fn(() => { f.events.push('fence'); if (!current) throw obsolete; });
+    const work = transaction(f.pool, async () => {
+      f.events.push('fn');
+      queueMicrotask(() => { current = false; f.events.push('lost'); });
+      return 1;
+    }, fence);
+    await expect(work).rejects.toBe(obsolete);
+    expect(f.events).toEqual(['BEGIN','fn','lost','fence','ROLLBACK','discard']);
+    expect(fence).toHaveBeenCalledOnce();
+  });
   it('does not release a client if acquisition fails', async () => {
     const error = new Error('connect'); const f = fake({ connect: error });
     await expect(transaction(f.pool, async () => 1)).rejects.toBe(error);
