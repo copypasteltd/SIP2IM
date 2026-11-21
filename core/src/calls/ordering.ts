@@ -1,0 +1,3 @@
+import { transitionCall,type CallEvent,type CallState,type Transition } from './coordinator.js';
+/** Per-session ordering guard; persisted coordination still must be supplied by caller. */
+export class PlatformOutboundOrder { private earlyActive=false; constructor(public state:CallState='reserving') {} apply(event:CallEvent):Transition { if(this.state==='cell_dialing' && event==='cell_active'){this.earlyActive=true;return {state:this.state};} const next=transitionCall('platform_out',this.state,event);this.state=next.state;if(this.state==='platform_dialing'&&this.earlyActive){this.state='waiting_user';this.earlyActive=false;return {state:this.state,action:next.action};}return next;} }

@@ -1,0 +1,18 @@
+:root{--bg:#0F3563;--surface:rgba(10,38,74,.6);--surface-2:rgba(234,242,255,.05);--text:#EAF2FF;--muted:#A9C1E0;--line:#5D8CC4;--line-soft:rgba(93,140,196,.4);--primary:#FFD34E;--primary-ink:#0F3563;--ok:#7CE0A8;--warn:#FFD34E;--err:#FF9A8C;--unk:#A9C1E0;--live:#7CE0A8;--radius:0;--radius-sm:0;--chip-radius:0;--card-border:1px dashed #5D8CC4;--nav-bg:rgba(8,32,62,.9);--nav-text:#D6E4F7;--nav-border:1px solid #5D8CC4;--nav-hover:rgba(255,211,78,.08);--nav-active-bg:rgba(255,211,78,.14);--nav-active-text:#FFD34E;--font-display:"Cascadia Code","Consolas","Microsoft YaHei UI",monospace;--font-body:"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;--font-mono:"Cascadia Code","Consolas",monospace;--font-num:"Cascadia Code","Consolas",monospace;--label-case:uppercase;--label-ls:.12em;--h2:12px;--h2-case:uppercase;--h2-ls:.14em;--field-bg:rgba(8,32,62,.6);--field-border:1px solid #5D8CC4;--btn-border:1px solid #5D8CC4;--phone-frame:#0A2343;--row-hover:rgba(255,211,78,.06);--h1-weight:600}
+body{background-color:#0F3563;background-image:linear-gradient(rgba(234,242,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(234,242,255,.07) 1px,transparent 1px),linear-gradient(rgba(234,242,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(234,242,255,.03) 1px,transparent 1px);background-size:120px 120px,120px 120px,24px 24px,24px 24px}
+.screen{background-color:#0F3563;background-image:linear-gradient(rgba(234,242,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(234,242,255,.05) 1px,transparent 1px);background-size:20px 20px}
+.topline h1::after{content:"";display:inline-block;width:72px;height:10px;margin-left:14px;border:1px solid #FFD34E;border-top:0;vertical-align:middle}
+.card h2{border-bottom:1px solid #5D8CC4;padding-bottom:8px;color:#FFD34E}
+th{color:#FFD34E}
+.timeline li::before{border-radius:0;transform:rotate(45deg);background:transparent;border:1.5px solid #FFD34E}
+.timeline li.now::before{background:#7CE0A8;border-color:#7CE0A8}
+.timeline li::after{border-left:1px dashed #5D8CC4}
+.link-line{background:none;height:0;border-top:2px dashed #7CE0A8}
+.switch,.switch::after{border-radius:0}
+.chan-badge,.lvl,.sim-card,.leg,.bubble,.dialpad button{border:1px dashed #5D8CC4}
+.brand-mark{background:transparent;border:1.5px solid #FFD34E}
+.kpi-value{color:#FFFFFF}
+select option{color:#0F3563;background:#fff}
+.st{background:rgba(15,53,99,.6)}
+.tag{color:#0F3563}
+.bubble.out{color:#0F3563}

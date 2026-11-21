@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {EventEmitter} from 'node:events';import {openDeviceMedia} from './media.mjs';
+test('late open after close cannot start a media timer',()=>{let timers=0;class Socket extends EventEmitter{constructor(){super();Socket.last=this}close(){this.emit('close')}}const m=openDeviceMedia({server:'ws://test.invalid',leg:{path:'/ws/media?session=s&leg=l',format:2},token:'x',WebSocketImpl:Socket,setIntervalFn:()=>{timers++;return 1}});m.close();Socket.last.emit('open');assert.equal(timers,0);});

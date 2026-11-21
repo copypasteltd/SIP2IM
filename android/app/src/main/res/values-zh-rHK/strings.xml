@@ -1,0 +1,8 @@
+<resources><string name="app_name">語音網關</string><string name="foundation_status">基礎功能尚未驗證；短訊和通話不可用。</string><string name="pause_gateway">暫停網關</string><string name="server_address">伺服器地址（http://主機:連接埠）</string><string name="binding_code">六位綁定碼</string><string name="bind">綁定裝置</string><string name="binding_failed">綁定未送出：請檢查伺服器地址和六位綁定碼。</string><string name="binding_pending">本機綁定需要核查。網關啟動和綁定已鎖定。請聯絡管理員核查身份和保留的記錄。</string><string name="binding_existing">裝置已綁定。</string><string name="binding_progress">正在綁定…</string><string name="sms_permission">允許接收短訊</string><string name="gateway_start_failed">裝置已綁定，但系統未接受啟動網關的要求。</string><string name="gateway_retry">再次要求啟動網關</string><string name="gateway_start_unknown">網關啟動要求的狀態未知。</string><string name="gateway_start_requesting">正在要求啟動網關…</string><string name="gateway_start_requested">已向系統要求啟動網關；這不代表網關正在運行或在線。</string><string name="gateway_connection_unknown">連線狀態未知。</string><string name="gateway_connection_terminal_closed">目前的綁定已停止執行，重新啟動不會解除限制。請聯絡管理員核查。</string>
+    <string name="binding_resume">繼續同一次綁定</string>
+    <string name="binding_outcome_unknown">綁定結果未知。你可以向原有伺服器重試同一次綁定，或聯絡管理員核查。請保留應用程式資料。</string>
+    <string name="binding_retry_later">綁定結果仍然未知。請稍候，再重試同一次綁定。</string>
+    <string name="binding_confirm_title">確認綁定裝置</string>
+    <string name="binding_confirm_message">將透過明文 HTTP 向 %1$s 傳送綁定要求。請確認地址無誤，並使用可信的網絡。</string>
+    <string name="binding_confirm_submit">確認綁定</string>
+</resources>

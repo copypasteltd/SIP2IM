@@ -1,0 +1,23 @@
+{
+  "name": "voip-gateway",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19 <23"
+  },
+  "workspaces": [
+    "packages/*",
+    "core",
+    "web",
+    "adapters/qq",
+    "tools/*"
+  ],
+  "scripts": {
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}

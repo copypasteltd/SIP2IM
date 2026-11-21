@@ -1,0 +1,11 @@
+:root{--bg:#0F1A3D;--surface:rgba(255,255,255,.08);--surface-2:rgba(255,255,255,.10);--text:#F2F4FF;--muted:#BAC1E8;--line:rgba(255,255,255,.2);--line-soft:rgba(255,255,255,.1);--primary:#8EA6FF;--primary-ink:#0B1230;--ok:#6EE7B7;--warn:#FCD34D;--err:#FCA5A5;--unk:#BAC1E8;--live:#7DD3FC;--radius:20px;--radius-sm:12px;--nav-bg:rgba(255,255,255,.06);--nav-border:1px solid rgba(255,255,255,.14);--nav-hover:rgba(255,255,255,.08);--nav-active-bg:rgba(255,255,255,.16);--shadow:0 10px 30px rgba(5,10,40,.35);--field-bg:rgba(255,255,255,.08);--font-display:"Segoe UI Semibold","Microsoft YaHei UI","PingFang SC",sans-serif;--font-body:"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;--font-mono:"Cascadia Mono","Consolas",monospace;--phone-frame:#0A0F26;--app-bg:transparent}
+body{background:radial-gradient(900px 620px at 8% -5%,#5B3FD1 0,transparent 62%),radial-gradient(760px 560px at 100% 25%,#0E8FA8 0,transparent 58%),radial-gradient(900px 700px at 45% 110%,#1D4ED8 0,transparent 60%),#0F1A3D;background-attachment:fixed}
+.card,.kpi,.nav,.app-card{-webkit-backdrop-filter:blur(18px) saturate(140%);backdrop-filter:blur(18px) saturate(140%)}
+.live{box-shadow:0 0 0 1px rgba(125,211,252,.55),0 0 46px rgba(125,211,252,.22),0 10px 30px rgba(5,10,40,.35)}
+.screen{background:radial-gradient(260px 260px at 10% 0%,#5B3FD1,transparent 70%),radial-gradient(260px 300px at 100% 60%,#0E8FA8,transparent 70%),#0F1A3D}
+select option{color:#111;background:#fff}
+.btn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.22)}
+.btn.primary{background:linear-gradient(135deg,#A5B8FF,#7DD3FC);color:#0B1230;border-color:transparent}
+.brand-mark{background:linear-gradient(135deg,#A5B8FF,#7DD3FC);border-radius:10px}
+.tag{background:linear-gradient(135deg,#A5B8FF,#7DD3FC)}
+.kpi-value{background:linear-gradient(135deg,#FFFFFF,#BFD0FF);-webkit-background-clip:text;background-clip:text;color:transparent}

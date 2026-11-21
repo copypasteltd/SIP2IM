@@ -1,0 +1,10 @@
+# Local staging device harness
+
+Opt-in only. Use a **dedicated local staging Core and staging administrator token**, never production or a real device credential. This creates and consumes a binding code, creates a uniquely named synthetic device, submits hello, one heartbeat and an empty/non-authoritative status snapshot, validates its persistence ACK, then validates the synthetic identity, online/paused heartbeat and snapshot capability in the authenticated device list, closes the socket and revokes the created device. It never issues SMS, call, or probe operations and rejects unexpected server commands. It starts no services or containers.
+
+From this directory, set
+`CORE_STAGING_OPT_IN=yes`, `CORE_STAGING_ORIGIN=http://127.0.0.1:PORT` (or literal `[::1]`), and `CORE_STAGING_ADMIN_TOKEN` in the process environment using a secure local mechanism. Run `node scripts/staging-device.mjs`. Do not put a token in source, a command argument, terminal history, or CI logs; remove it from the environment afterwards. Normal tests do not run this harness.
+
+Only explicit literal loopback HTTP origins with a port are accepted; redirects are refused. Do not point a loopback proxy at a non-staging service. The operator must verify the Core behind the port really is staging: network locality alone does not prove that. The returned device credential and binding code stay in memory and are never printed. Responses and error details are suppressed. The server may have its own logging policy.
+
+The heartbeat is ordered before the snapshot, but has no wire ACK, so successful status ACK does not independently prove heartbeat persistence. Revocation is attempted once and authenticated GET must return 404; it is a soft revocation and records remain in staging. Socket closure is awaited with a bounded timeout. An interrupted or uncertain binding or delete can leave state requiring manual inspection. Never retry an uncertain bind or delete blindly. This runner does not prove SMS/call behavior or real hardware behavior.

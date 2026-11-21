@@ -1,0 +1,67 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ApiError, request } from '../../api/client';
+import { MoreSettings } from './more-settings';
+import { AccountSettings } from './account-settings';
+
+export type Settings = {defaultDeviceId:string|null;inboundRingTimeoutSec:number;outboundUserAnswerTimeoutSec:number;outboundCalleeAnswerTimeoutSec:number;outboundCallbackRingTimeoutSec:number;alertPushIntervalSec:number;earlyMediaThresholdDbfs:number;smsForward:boolean;smsRatePerMin:number|null;heartbeatSec:number;offlineAfterSec:number;botLocale:'zh-CN'|'zh-HK'|'en'};
+export type Field = keyof Settings;
+type Scalar = Settings[Field];
+type Entry = {value:string|boolean; baseline:Scalar; conflict:boolean};
+type Drafts = Partial<Record<Field,Entry>>;
+const numeric:Field[] = ['inboundRingTimeoutSec','outboundUserAnswerTimeoutSec','outboundCalleeAnswerTimeoutSec','outboundCallbackRingTimeoutSec','alertPushIntervalSec','earlyMediaThresholdDbfs','smsRatePerMin','heartbeatSec','offlineAfterSec'];
+function validSettings(value:unknown): value is Settings {
+  if (!value || typeof value !== 'object') return false;
+  const s=value as Record<string,unknown>;
+  return (s.defaultDeviceId===null || typeof s.defaultDeviceId==='string') && typeof s.smsForward==='boolean' && typeof s.botLocale==='string' && ['en','zh-CN','zh-HK'].includes(s.botLocale) && numeric.every(k=>k==='smsRatePerMin' && s[k]===null || typeof s[k]==='number' && Number.isFinite(s[k]));
+}
+function toValue(field:Field, value:Entry['value']):Scalar|undefined {
+  if (field==='defaultDeviceId') return value==='' ? null : value as string;
+  if (field==='smsForward') return value as boolean;
+  if (field==='botLocale') return value as Settings['botLocale'];
+  if (field==='smsRatePerMin' && value==='') return null;
+  if (typeof value!=='string' || value.trim()==='' || !Number.isFinite(Number(value))) return undefined;
+  return Number(value);
+}
+export type SettingsEditor = {settings:Settings; drafts:Drafts; busy:boolean; blocked:boolean; edit:(field:Field,value:string|boolean)=>void; resolve:(field:Field,keep:boolean)=>void; save:(fields:Field[])=>void};
+
+export function Form({editor}:{editor:SettingsEditor}) {
+ const {t}=useTranslation(); const {settings,drafts,busy,blocked,edit,resolve,save}=editor;
+ const groups: {title:string; fields:Field[]}[]=[{title:'sms',fields:['smsForward','smsRatePerMin']},{title:'timing',fields:['heartbeatSec','offlineAfterSec']},{title:'bot',fields:['botLocale']}];
+ const labels:Record<string,string>={smsForward:'forward',smsRatePerMin:'rate',heartbeatSec:'heartbeat',offlineAfterSec:'offline',botLocale:'botLocale'};
+ return <>{groups.map(group=><form className="panel" key={group.title} onSubmit={(e:FormEvent)=>{e.preventDefault();save(group.fields);}}><h2>{t('settingsPage.'+group.title)}</h2>{group.fields.map(field=>{const entry=drafts[field];const value=entry?.value??settings[field]; return <div key={field}><label className="field">{field==='smsForward'?<><input type="checkbox" checked={Boolean(value)} disabled={busy} onChange={e=>edit(field,e.target.checked)}/> {t('settingsPage.'+labels[field])}</>:<>{t('settingsPage.'+labels[field])}{field==='botLocale'?<select value={String(value)} disabled={busy} onChange={e=>edit(field,e.target.value)}><option value="zh-CN">简体中文</option><option value="zh-HK">繁體中文</option><option value="en">English</option></select>:<input type="number" min="1" required={field!=='smsRatePerMin'} value={value===null?'':String(value)} disabled={busy} onChange={e=>edit(field,e.target.value)}/>}</>}</label>{entry?.conflict && <div role="alert"><p>{t('settingsPage.draftConflict',{field:t('settingsPage.'+labels[field])})}</p><button type="button" disabled={busy} onClick={()=>resolve(field,false)}>{t('settingsPage.useLatest')}</button><button type="button" disabled={busy} onClick={()=>resolve(field,true)}>{t('settingsPage.keepMine')}</button></div>}</div>;})}<button className="secondary" disabled={busy||blocked||!group.fields.some(f=>drafts[f])||group.fields.some(f=>drafts[f]?.conflict)}>{t('action.save')}</button></form>)}</>;
+}
+
+export function SettingsPage(){
+ const {t}=useTranslation();
+ const [settings,setSettings]=useState<Settings|null>(null); const snapshot=useRef<Settings|null>(null);
+ const [drafts,setDrafts]=useState<Drafts>({}); const draftsRef=useRef<Drafts>({});
+ const [busy,setBusy]=useState(false); const gate=useRef(false);
+ const [refreshFailed,setRefreshFailed]=useState(false); const failed=useRef(false);
+ const [uncertain,setUncertain]=useState(false); const uncertainRef=useRef(false);
+ const [unsupported,setUnsupported]=useState(false); const unsupportedRef=useRef(false);
+ const [message,setMessage]=useState('');
+ const updateDrafts=(next:Drafts)=>{draftsRef.current=next;setDrafts(next);};
+ const lock=()=>{if(gate.current)return false;gate.current=true;setBusy(true);return true;};
+ const unlock=()=>{gate.current=false;setBusy(false);};
+ async function getSnapshot(forceConflict:Field[]=[]){
+   try {const response=await request<unknown>('/api/settings'); if(!validSettings(response.data)) throw new Error('invalid settings');
+     const next=response.data; const updated={...draftsRef.current};
+     for(const field of Object.keys(updated) as Field[]){const d=updated[field]!; const value=toValue(field,d.value); if(forceConflict.includes(field)) updated[field]={...d,conflict:true}; else if(!d.conflict && Object.is(value,next[field])) delete updated[field]; else if(!Object.is(d.baseline,next[field])) updated[field]={...d,conflict:true};}
+     snapshot.current=next; setSettings(next); updateDrafts(updated); failed.current=false;setRefreshFailed(false);return true;
+   } catch {failed.current=true;setRefreshFailed(true);return false;}
+ }
+ async function refresh(){if(!lock())return;try{await getSnapshot();}finally{unlock();}}
+ useEffect(()=>{void refresh();},[]);
+ function edit(field:Field,value:string|boolean){if(gate.current||!snapshot.current)return; const current=draftsRef.current[field];const baseline=current ? current.baseline : snapshot.current[field]; const next={...draftsRef.current}; if(!current?.conflict && Object.is(toValue(field,value),snapshot.current[field])) delete next[field];else next[field]={value,baseline,conflict:current?.conflict??false};updateDrafts(next);}
+ function resolve(field:Field,keep:boolean){if(gate.current||failed.current||!snapshot.current)return;const next={...draftsRef.current};const entry=next[field];if(!entry)return;if(keep && !Object.is(toValue(field,entry.value),snapshot.current[field])) next[field]={...entry,baseline:snapshot.current[field],conflict:false};else delete next[field];updateDrafts(next);}
+ async function save(fields:Field[]){if(gate.current||failed.current||uncertainRef.current||unsupportedRef.current||!snapshot.current)return;const changes:Partial<Settings>={};const expected:Partial<Settings>={};for(const field of fields){const d=draftsRef.current[field];if(!d)continue;if(d.conflict)return;const value=toValue(field,d.value);if(value===undefined)return;Object.assign(changes,{[field]:value});Object.assign(expected,{[field]:d.baseline});}const keys=Object.keys(changes) as Field[];if(!keys.length||!lock())return;setMessage('');try{
+   try {const result=await request<unknown>('/api/settings/conditional',{method:'PUT',body:{changes,expected}});if(!validSettings(result.data)) throw new Error('invalid write response');await getSnapshot();}
+   catch(error){if(error instanceof ApiError && error.status===409){for(const field of keys){const d=draftsRef.current[field];if(d) draftsRef.current[field]={...d,conflict:true};}updateDrafts({...draftsRef.current});setMessage('conflictRefresh');await getSnapshot(keys);}
+     else if(error instanceof ApiError && error.status===404){unsupportedRef.current=true;setUnsupported(true);setMessage('unsupported');}
+     else if(error instanceof ApiError && [400,401,403,422].includes(error.status)){setMessage('saveRejected');}
+     else {uncertainRef.current=true;setUncertain(true);setMessage(error instanceof ApiError && error.code==='SETTINGS_WRITE_COMMITTED_EFFECTS_UNKNOWN'?'saveCommittedUncertain':'saveUncertain');await getSnapshot(keys);}}
+ }finally{unlock();}}
+ const editor=settings?{settings,drafts,busy,blocked:refreshFailed||uncertain||unsupported,edit,resolve,save}:null;
+ return <><h1>{t('settings')}</h1>{refreshFailed&&<p role="alert">{t('settingsPage.refreshFailed')}</p>}{message&&<p role="alert">{t('settingsPage.'+message)}</p>}{(settings||refreshFailed)&&<button type="button" disabled={busy} onClick={()=>void refresh()}>{t('settingsPage.refreshSnapshot')}</button>}{uncertain&&!refreshFailed&&<button type="button" disabled={busy} onClick={()=>{uncertainRef.current=false;setUncertain(false);setMessage('');}}>{t('settingsPage.acknowledgeUncertain')}</button>}{editor?<><Form editor={editor}/><MoreSettings editor={editor}/><AccountSettings/></>:busy?<p role="status">{t('loading')}</p>:<p role="alert">{t('loadError')}</p>}</>;
+}

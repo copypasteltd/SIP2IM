@@ -1,0 +1,2 @@
+import {it,expect} from 'vitest';import {AdminHub} from '../src/ws-admin/hub.js';
+it('checks authorization again before every broadcast',async()=>{let valid=true;const sent:string[]=[],closed:number[]=[];const socket={send:(v:string)=>sent.push(v),close:(v:number)=>closed.push(v)};const hub=new AdminHub(async()=>valid?'admin':null);hub.add(socket,'token');await hub.publish('device.online',{});expect(sent).toHaveLength(1);valid=false;await hub.publish('device.offline',{});expect(sent).toHaveLength(1);expect(closed).toEqual([4403]);});

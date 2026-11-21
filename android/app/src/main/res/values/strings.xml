@@ -1,0 +1,8 @@
+<resources><string name="app_name">语音网关</string><string name="foundation_status">基础功能尚未验证；短信和通话不可用。</string><string name="pause_gateway">暂停网关</string><string name="server_address">服务器地址（http://主机:端口）</string><string name="binding_code">六位绑定码</string><string name="bind">绑定设备</string><string name="binding_failed">绑定未发送：请检查服务器地址和六位绑定码。</string><string name="binding_pending">本地绑定需要核查。网关启动和绑定已锁定。请联系管理员核查身份和保留的记录。</string><string name="binding_existing">设备已绑定。</string><string name="binding_progress">正在绑定…</string><string name="sms_permission">允许接收短信</string><string name="gateway_start_failed">设备已绑定，但系统未接受启动网关的请求。</string><string name="gateway_retry">再次请求启动网关</string><string name="gateway_start_unknown">网关启动请求状态未知。</string><string name="gateway_start_requesting">正在请求启动网关…</string><string name="gateway_start_requested">已向系统请求启动网关；这不表示网关正在运行或在线。</string><string name="gateway_connection_unknown">连接状态未知。</string><string name="gateway_connection_terminal_closed">当前绑定已停止执行，重启不会解除限制。请联系管理员核查。</string>
+    <string name="binding_resume">继续同一次绑定</string>
+    <string name="binding_outcome_unknown">绑定结果未知。你可以向原服务器重试同一次绑定，或联系管理员核查。请保留应用数据。</string>
+    <string name="binding_retry_later">绑定结果仍未知。请稍等片刻，再重试同一次绑定。</string>
+    <string name="binding_confirm_title">确认绑定设备</string>
+    <string name="binding_confirm_message">将向 %1$s 发送绑定请求。连接使用明文 HTTP，请确认地址无误，并使用可信网络。</string>
+    <string name="binding_confirm_submit">确认绑定</string>
+</resources>

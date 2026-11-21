@@ -1,0 +1,27 @@
+:root{--bg:#060A06;--surface:#0A110A;--surface-2:#0F1A0F;--text:#BDF7CB;--muted:#6E9F79;--line:#1F3D24;--line-soft:#15291A;--primary:#39FF88;--primary-ink:#031A0B;--ok:#39FF88;--warn:#FFC857;--err:#FF6B61;--unk:#6E9F79;--live:#39FF88;--radius:0;--radius-sm:0;--chip-radius:0;--bubble-radius:0;--font-display:"Cascadia Mono","Consolas","Microsoft YaHei UI",monospace;--font-body:"Cascadia Mono","Consolas","Microsoft YaHei UI",monospace;--font-mono:"Cascadia Mono","Consolas",monospace;--fs:13px;--nav-bg:#060A06;--nav-hover:#0F1A0F;--nav-active-bg:#39FF88;--nav-active-text:#031A0B;--field-bg:#060A06;--phone-frame:#000;--h1:18px;--h2:13px;--kpi-size:28px}
+.topline h1::before{content:"root@local-server:~$ ";color:var(--muted);font-weight:400}
+.topline h1::after{content:"";display:inline-block;width:.6em;height:1.1em;background:var(--primary);vertical-align:-.18em;margin-left:4px;animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.card h2{color:var(--primary)}
+.card h2::before{content:"## ";color:var(--muted)}
+.st{border:0;padding:0 2px;font-weight:700}
+.st::before{content:"["}.st::after{content:"]"}
+.st i{display:none}
+.nav a.item svg{display:none}
+.nav a.item::before{content:">";visibility:hidden}
+.nav a.item.active::before{visibility:visible}
+.brand-mark{background:transparent;border:1px solid var(--primary)}
+.kpi-value{color:var(--primary);text-shadow:0 0 8px rgba(57,255,136,.35)}
+.kpi-label::before{content:"$ "}
+.bubble{border:1px solid var(--line);background:transparent}
+.bubble.out{background:transparent;color:var(--primary);border-color:var(--primary)}
+.switch,.switch::after{border-radius:0}
+.switch{border:1px solid var(--primary);background:transparent}
+.switch::after{background:var(--muted);top:2px;left:2px}
+.switch.on{background:var(--primary)}.switch.on::after{background:#060A06;left:22px}
+.btn{border:1px solid var(--primary);color:var(--primary);background:transparent}
+.btn.primary{background:var(--primary);color:var(--primary-ink)}
+.btn.danger{background:transparent;color:var(--err);border-color:var(--err)}
+.tag{background:transparent;color:var(--primary);border:1px solid var(--primary)}
+.dot{border-radius:0}
+.qr{filter:grayscale(1)}

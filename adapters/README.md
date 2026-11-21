@@ -1,0 +1,7 @@
+# Adapter foundations
+
+Telegram: run `PYTHONPATH=adapters/telegram/src python -m voipgw_tg.main` (or install its package). QQ: run `npm run -w adapters/qq start`; an optional first argument selects the local socket path. Each connects to its local core socket, sends hello, capabilities and account state in order, waits up to ten seconds for each ACK, and retries connections with 1–30 second exponential backoff. Both default to an unavailable backend and report all platform capabilities false. In-memory test doubles are only injected in tests and never contact platforms. Duplicate command results are retained in memory for the last 500 IDs; a restart loses that cache.
+
+These are foundations, not deployable platform integrations. Telegram now has an optional Telethon backend for phone/code/password login and private messages, tested only with fakes; its session is memory-only. QQ real login and messaging, and both platforms’ incoming-call rejection, voice and media remain unimplemented. Config file loading, cross-language shared fixture coverage, socket integration tests on Ubuntu, reconnect timing and target Node 20/Python 3.10 verification remain outstanding. The QQ process is JavaScript rather than the specified strict TypeScript and its syntax check is not a typecheck. No ACK is retried; timeout or disconnect leaves its outcome unknown.
+
+Offline tests: set PYTHONPATH to adapters/telegram/src and run `python -m unittest discover -s adapters/telegram/tests`; run `npm run -w adapters/qq check`.

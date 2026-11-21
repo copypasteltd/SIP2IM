@@ -1,0 +1,8 @@
+name	valid	headerHex	pcmSampleHex	pcmSamples	format	flags	seq	captureTs
+pcm-8k	true	01010000ffffffff78563412	3412	160	1	0	4294967295	305419896
+silence-16k-prompt	true	0102060001000000ffffffff	0000	0	2	6	1	4294967295
+silence-48k	true	010304000000000000000000	0000	0	3	4	0	0
+reserved-byte	false	010304010000000000000000	0000	0	-	-	-	-
+missing-pcm	false	010100000000000000000000	0000	0	-	-	-	-
+unknown-flags	false	010308000000000000000000	0000	0	-	-	-	-
+short-header	false	0103040000000000000000	0000	0	-	-	-	-

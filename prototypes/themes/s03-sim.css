@@ -1,0 +1,6 @@
+:root{--bg:#E8E7E2;--surface:#FFFFFF;--surface-2:#F4F3EF;--text:#1F1F1D;--muted:#64635C;--line:#D5D3CA;--line-soft:#E7E5DE;--primary:#2D5BD7;--primary-ink:#FFFFFF;--ok:#1B7A4F;--warn:#9A600E;--err:#C3332F;--unk:#7D7B73;--live:#2D5BD7;--radius:16px;--radius-sm:9px;--chip-radius:7px;--nav-bg:#F6F5F1;--nav-border:1px solid #D5D3CA;--nav-active-bg:#FFFFFF;--nav-active-text:#1F1F1D;--shadow:0 1px 2px rgba(31,31,29,.06),0 4px 14px rgba(31,31,29,.04);--font-display:"Segoe UI Semibold","Microsoft YaHei UI","PingFang SC",sans-serif;--font-body:"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;--font-mono:"Cascadia Mono","Consolas",monospace;--phone-frame:#2A2A28}
+.card,.kpi,.app-card{clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,0 100%)}
+.chip-icon,.brand-mark{background:linear-gradient(90deg,transparent 31%,rgba(74,52,12,.45) 31% 35%,transparent 35% 65%,rgba(74,52,12,.45) 65% 69%,transparent 69%),linear-gradient(0deg,transparent 46%,rgba(74,52,12,.45) 46% 54%,transparent 54%),linear-gradient(135deg,#EFD58E,#B8892F);border-radius:7px}
+.nav a.item.active{box-shadow:inset 3px 0 0 #C9A04A,0 1px 2px rgba(0,0,0,.06)}
+.sim-num{font-size:17px;letter-spacing:.02em}
+.tag{background:#1F1F1D;color:#F2D58F}

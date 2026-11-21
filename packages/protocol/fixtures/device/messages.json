@@ -1,0 +1,565 @@
+[
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "hello",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "token": "token",
+        "apkVersion": "1",
+        "apkCode": 1,
+        "protocol": 1,
+        "manufacturer": "M",
+        "model": "N",
+        "apiLevel": 30,
+        "locale": "en"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "hello",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "token": "token",
+        "apkVersion": "1",
+        "apkCode": 1,
+        "protocol": 1,
+        "manufacturer": "M",
+        "model": "N",
+        "apiLevel": 30,
+        "locale": "en"
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "heartbeat",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "battery": null,
+        "charging": null,
+        "network": "wifi",
+        "signalDbm": null,
+        "shizuku": "running",
+        "paused": false
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "heartbeat",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "battery": null,
+        "charging": null,
+        "network": "wifi",
+        "signalDbm": null,
+        "shizuku": "running",
+        "paused": false
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "status.snapshot",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "simsAuthoritative": true,
+        "sims": [],
+        "capabilityLevel": "L1",
+        "probes": {
+          "smsSend": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "smsReceive": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "dial": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "answer": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "hangup": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "dtmf": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "downlink": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "uplink": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "earlyMedia": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          }
+        },
+        "permissions": []
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "status.snapshot",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "sims": [],
+        "capabilityLevel": "L1",
+        "probes": {
+          "smsSend": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "smsReceive": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "dial": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "answer": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "hangup": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "dtmf": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "downlink": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "uplink": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          },
+          "earlyMedia": {
+            "result": "untested",
+            "probedAt": 0,
+            "detail": null
+          }
+        },
+        "permissions": []
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "sms.received",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "subId": null,
+        "slot": 0,
+        "from": "123",
+        "fromKind": "short",
+        "body": "你好",
+        "receivedAt": 1,
+        "parts": 1
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "sms.received",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "subId": null,
+        "slot": 0,
+        "from": "123",
+        "fromKind": "short",
+        "body": "你好",
+        "receivedAt": 1,
+        "parts": 1
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "sms.result",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "taskId": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "sent",
+        "errorCode": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "sms.result",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "taskId": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "sent",
+        "errorCode": null
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {"v": 1, "type": "sms.result", "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV", "ts": 1, "payload": {"taskId": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV", "state": "unknown", "errorCode": null}},
+    "invalid": {"v": 1, "type": "sms.result", "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV", "ts": 1, "payload": {"taskId": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV", "state": "uncertain", "errorCode": null}}
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "call.incoming",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "from": null,
+        "fromKind": "unknown"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.incoming",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "from": null,
+        "fromKind": "unknown"
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "call.state",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "active",
+        "cause": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.state",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "active",
+        "cause": null
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "ack",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "refId": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "ok": true,
+        "error": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "ack",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "refId": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "ok": true,
+        "error": null
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "hello.ok",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "deviceId": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "serverTime": 1,
+        "config": {
+          "heartbeatSec": 30,
+          "locale": "en"
+        }
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "hello.ok",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "deviceId": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "serverTime": 1,
+        "config": {
+          "heartbeatSec": 30,
+          "locale": "en"
+        }
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "sms.send",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "taskId": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "to": "123",
+        "body": "hi"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "sms.send",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "taskId": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "to": "123",
+        "body": "hi"
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "call.dial",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "to": "123",
+        "media": {
+          "sessionId": "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "legId": "leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "path": "/ws/media?session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV&leg=leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "format": 2
+        }
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.dial",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "to": "123",
+        "media": {
+          "sessionId": "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "legId": "leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "path": "/ws/media?session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV&leg=leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "format": 2
+        }
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "call.answer",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "media": {
+          "sessionId": "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "legId": "leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "path": "/ws/media?session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV&leg=leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "format": 2
+        }
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.answer",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "media": {
+          "sessionId": "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "legId": "leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "path": "/ws/media?session=ses_01ARZ3NDEKTSV4RRFFQ69G5FAV&leg=leg_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "format": 2
+        }
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "call.reject",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.reject",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "call.hangup",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.hangup",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "call.dtmf",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "digits": "12#"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.dtmf",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "digits": "12#"
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "probe.run",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "items": []
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "probe.run",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "items": []
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "config.update",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {}
+    },
+    "invalid": {
+      "v": 2,
+      "type": "config.update",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {}
+    }
+  }
+]

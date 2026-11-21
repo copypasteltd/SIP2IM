@@ -1,0 +1,13 @@
+:root{--bg:#140B1A;--surface:#1D1124;--surface-2:#271731;--text:#F7EAF5;--muted:#BCA3C6;--line:#3A2449;--line-soft:#2C1B38;--primary:#FF4FA3;--primary-ink:#1A0612;--ok:#5CFFB0;--warn:#FFD166;--err:#FF7A7A;--unk:#BCA3C6;--live:#4FF0FF;--radius:14px;--radius-sm:10px;--nav-bg:#10081A;--nav-border:1px solid #2C1B38;--nav-hover:#1D1124;--nav-active-bg:transparent;--nav-active-text:#FF8CC6;--font-display:"Microsoft JhengHei UI","Microsoft JhengHei","PingFang HK","Microsoft YaHei UI",sans-serif;--font-body:"Segoe UI","Microsoft JhengHei UI","Microsoft YaHei UI",sans-serif;--font-mono:"Cascadia Mono","Consolas",monospace;--h1:28px;--h1-weight:800;--phone-frame:#0A0510}
+.topline h1{color:#FFE3F1;text-shadow:0 0 6px #FF4FA3,0 0 18px rgba(255,79,163,.6)}
+.nav a.item.active{box-shadow:0 0 0 1.5px #FF4FA3,0 0 14px rgba(255,79,163,.55),inset 0 0 10px rgba(255,79,163,.25)}
+.live{border-color:#4FF0FF;box-shadow:0 0 0 1px #4FF0FF,0 0 26px rgba(79,240,255,.35)}
+.kpi-value{color:#4FF0FF;text-shadow:0 0 10px rgba(79,240,255,.55)}
+.kpi:nth-child(odd) .kpi-value{color:#FF8CC6;text-shadow:0 0 10px rgba(255,79,163,.55)}
+.brand-mark{background:transparent;border:2px solid #FF4FA3;box-shadow:0 0 10px #FF4FA3;border-radius:50%}
+.card h2{color:#FFD166}
+.btn.primary{box-shadow:0 0 14px rgba(255,79,163,.45)}
+.chan-badge{border-color:#FF4FA3;color:#FF8CC6;box-shadow:0 0 8px rgba(255,79,163,.4)}
+.tag{background:transparent;color:#4FF0FF;border:1.5px solid #4FF0FF;box-shadow:0 0 8px rgba(79,240,255,.45)}
+.screen{background:radial-gradient(240px 200px at 80% 0%,rgba(255,79,163,.25),transparent 70%),#140B1A}
+.lvl{color:#FFD166;border-color:#FFD166}

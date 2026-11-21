@@ -1,0 +1,23 @@
+{
+  "control": {
+    "message": {
+      "v": 1,
+      "type": "message.send",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": { "userId": "fixture-user", "text": "你好 🌍" }
+    },
+    "wireHex": "00000084017b2276223a312c2274797065223a226d6573736167652e73656e64222c226964223a226970635f303141525a334e44454b54535634525246465136394735464156222c227473223a312c227061796c6f6164223a7b22757365724964223a22666978747572652d75736572222c2274657874223a22e4bda0e5a5bd20f09f8c8d227d7d"
+  },
+  "audio": {
+    "channel": 255,
+    "mediaHex": "010304000000000000000000",
+    "wireHex": "0000000e02ff010304000000000000000000"
+  },
+  "invalidFraming": {
+    "zeroLength": "00000000",
+    "lengthOverLimit": "00100001",
+    "unknownKind": "0000000103"
+  },
+  "malformedUtf8Hex": "0000000301c0af"
+}

@@ -1,0 +1,17 @@
+:root{--bg:#F4FBF8;--surface:#FFFFFF;--surface-2:#E9F4F0;--text:#171D1C;--muted:#3F4947;--line:#C3CFCB;--line-soft:#E1EAE7;--primary:#006A60;--primary-ink:#FFFFFF;--ok:#1E7A3A;--warn:#875700;--err:#BA1A1A;--unk:#5F6967;--live:#006A60;--radius:24px;--radius-sm:14px;--btn-radius:999px;--card-border:0;--shadow:0 1px 3px rgba(0,0,0,.08),0 1px 1px rgba(0,0,0,.04);--nav-bg:#E9F4F0;--nav-border:0;--nav-active-bg:transparent;--nav-active-text:#00201C;--font-display:"Roboto","Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;--font-body:"Roboto","Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;--font-mono:"Roboto Mono","Consolas",monospace;--h1:28px;--h1-weight:500;--h2:16px;--h2-weight:500;--kpi-weight:500;--field-bg:#E9F1EE;--field-border:1px solid transparent;--phone-frame:#1B1F1E}
+.nav a.item:hover{background:transparent}
+.nav a.item.active svg{width:56px;height:32px;padding:5px 17px;border-radius:16px;background:#9EF2E4;color:#00201C}
+.nav a.item:hover svg{border-radius:16px;background:rgba(0,106,96,.08)}
+.kpi:nth-child(3n+1){background:#DAEFE9}.kpi:nth-child(3n+2){background:#E6EEFF}.kpi:nth-child(3n){background:#FFF0D9}
+.btn{border:0;background:#DAEFE9;color:#00201C}
+.btn.ghost{background:transparent;color:#006A60}
+.btn.primary{background:#006A60;color:#fff}
+.st{border:0;background:color-mix(in srgb,currentColor 13%,transparent)}
+.st-unk{border:1px dashed currentColor;background:transparent}
+.sim-card,.leg{border:0;background:#E9F4F0}
+.bubble{border-radius:20px}
+.chan-badge{border:0;background:#9EF2E4;color:#00201C;border-radius:14px}
+.brand-mark{border-radius:12px}
+.live{background:#E4F7F2}
+.switch{background:#9AA8A4}
+.dialpad button{border:0;border-radius:999px}

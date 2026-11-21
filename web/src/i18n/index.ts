@@ -1,0 +1,13 @@
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+import zhCN from './locales/zh-CN/common.json';
+import zhHK from './locales/zh-HK/common.json';
+import en from './locales/en/common.json';
+export const languages = ['zh-CN', 'zh-HK', 'en'] as const;
+export type Language = typeof languages[number];
+const saved = localStorage.getItem('voip.locale');
+void i18n.use(initReactI18next).init({ resources: { 'zh-CN': { common: zhCN }, 'zh-HK': { common: zhHK }, en: { common: en } }, lng: languages.find((x) => x === saved) ?? 'zh-CN', fallbackLng: 'zh-CN', defaultNS: 'common', interpolation: { escapeValue: false } });
+document.documentElement.lang = i18n.language;
+i18n.on('languageChanged', (language) => { document.documentElement.lang = language; localStorage.setItem('voip.locale', language); });
+i18n.on('missingKey', (lng, ns, key) => { if (import.meta.env.DEV) console.error('Missing translation', lng, ns, key); });
+export default i18n;

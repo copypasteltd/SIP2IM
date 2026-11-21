@@ -1,0 +1,189 @@
+# Usage and operations / 使用与运维手册
+
+[简体中文](#简体中文) · [English](#english)
+
+## 简体中文
+
+### 演示、原生工具与构建
+
+先按首页的合成演示了解流程。演示不需要绑定 Android 硬件、PostgreSQL、真实账户或运营商服务。[快速演示](../README.md#快速演示)
+
+从仓库根目录运行下方共用命令。Core、Web 和共享 TypeScript 协议通过各包的锁文件安装，构建先运行协议包。推荐 Node.js 22，项目声明范围为 `>=20.19 <23`。Android 用原生 JDK 17、SDK Platform 35、已获授权的 SDK 许可和兼容 AGP 8.7.3 的 Gradle 8.x（至少 8.9）。仓库没有随附 Gradle wrapper。Python 工具需要 Python 3.10+，演示和多数离线夹具无需登录平台。缺依赖时在受授权的准备环境取得并核验依赖。[Core 构建入口](../core/package.json) · [Android 构建配置](../android/build.gradle.kts) · [Telegram 包](../adapters/telegram/pyproject.toml) · [共用构建与测试命令](#native-builds-and-checks)
+
+### 首次安装与启动
+
+1. 准备专用原生 PostgreSQL 数据库（使用 PostgreSQL 14 或更新的兼容版本）。以本机回环作为隔离测试默认设置，使用私有配置、空数据库、专用角色和合成数据。保持适配器和探测关闭。确认证书、身份与访问控制之前，只在隔离环境使用当前 Android 明文绑定入口。[配置结构](#shared-configuration-example)
+2. 构建协议、Core、Web。为管理后台配置同一来源的静态文件与 SPA 回退，并转发 `/api` 和 `/ws`（保留 WebSocket upgrade）。Core 当前只提供 API 和 WebSocket，静态入口单独提供。`VITE_API_BASE` 可用于受控构建。相关反向代理和平台设置需在目标环境独立验收。[构建命令](#native-builds-and-checks) · [Core 路由](../core/src/main.ts) · [Web 客户端](../web/src/api/client.ts)
+3. 在 Core 停止的情况下执行 `migrate`，核对迁移顺序及已应用版本。可在专用库执行只读查询 `SELECT version FROM schema_migration ORDER BY version`，并与迁移目录核对。运行 `admin:create --username demo-admin` 创建首个测试管理员。它要求交互终端，提示输入两次密码，长度至少为 10。每个数据库启动一个 Core。普通启动也会在监听前核对并应用迁移。停止使用 Ctrl+C，确认进程退出、工作排空和锁释放后再启动替代进程。[CLI 与启动](#shared-cli-commands)
+4. 在授权的验证环境检查 `GET /api/health` 的 `data.ok=true` 和 `data.db=ok`。使用合成管理员核对登录、设备与短信页面。真实设备上线另行审批，只有匹配绑定、活动连接、可用 SIM 与权限都验证后才允许对设备做测试。健康检查和后台读回只覆盖各自功能。[发布检查](RELEASE-CHECKLIST.md)
+
+### 首次绑定 Android
+
+在经授权的隔离环境，用管理员打开设备页的绑定弹窗，保留该次签发的记录 ID。在经授权的全新 Android 安装中，输入经核对的 HTTP 地址和六位码。确认地址和绑定操作。核对 Android 已保存的设备身份和 Core 的绑定记录，等待匹配的连接和 SIM 状态。二维码与六位码同样作为短期敏感数据处理。[Web 绑定界面](../web/src/features/devices/binding.tsx) · [Android 界面](../android/app/src/main/kotlin/io/voipgw/gateway/ui/MainActivity.kt)
+
+### 失败与对账
+
+| 情景 | 执行步骤 |
+| --- | --- |
+| Android 显示绑定结果未知 | 保留应用数据、原绑定码记录和待确认凭据。使用应用的原尝试恢复按钮，在退避后只重试初始请求。以 Core 返回的匹配身份和 Android 的持久化读回作为绑定完成证据。过期、限流、HTTP 错误、超时或空列表本身不能解释之前的提交。 |
+| 码丢失、重复绑定风险、旧设备或安装恢复 | 在设备页打开绑定记录，选择并核实 `recordId`，复核关联设备，再确认取消。在权威主库上核对已提交的取消与必要的会话和媒体清理。清理不确定时以同一记录重新查询和核对。调查旧设备、旧凭据及队列后单独批准替代绑定。Android 没有把历史身份、短信或未归属队列自动迁给新绑定的操作。 |
+| 连接终止、升级后提示核对、存储故障 | 保留 Android 数据库与相关日志文件（包括现有 WAL 或回滚日志），按敏感数据处理。先检查正确设备、Core 授权、绑定身份与已记录队列。完整且静止的一致副本可用于授权的离线盘点。 |
+| Web 短信提交超时或显示待确认 | 保留相同管理员、API 来源、SIM、号码、正文和幂等键。用短信页面的检查操作读回同一键。仅在匹配的记录出现时清除待确认信息，或在可用时明确恢复同一个意图。会话存储有浏览器生命周期边界。空结果不能排除迟到提交。 |
+| Core 任务 `unknown` 或 ACK 与结果矛盾 | 查同一任务、调度尝试、设备/SIM、事件和审计。检查申领、ACK 和结果各自是否持久化。保留并核对原任务，避免换键重发或直接改状态。系统发送回执不足以证明运营商送达。 |
+| 入站短信被隔离或队列停在同一事件 | 核对配置的托管模式、告警、原事件 ID 及设备。指定管理员在短信隔离清单查看元数据，按授权审计导出指定条目。将导出当作敏感内容。启用正向 ACK 的模式前按清单验证持久化、同事件重放和恢复。避免清除 Android outbox。 |
+| 短信速率设置的提交结果未知 | 确认旧 Core 已停止，在权威主库上核对设置与待处理任务，验证有效速率后按独占流程重启。进程在提交结果不明确期间暂停新的下发，排队记录保留。 |
+| Core 锁丢失、数据库迁移或提交结果未知 | 停止同库写入。核对旧进程和会话已结束。用权威主库读回 `schema_migration`、结构和相关业务记录，再决定重启、继续或从演练过的备份恢复。保留日志、证据和业务数据。迁移版本记录与对应 SQL 在同一事务提交。 |
+
+参阅 [状态与 ACK](IMPLEMENTATION.md#短信调度和-ack)、[托管模式](IMPLEMENTATION.md#异常短信托管) 与 [离线盘点](../tools/COMMAND-INVENTORY.md)。
+
+## English
+
+### Demo, native tooling and builds
+
+Start with the synthetic demo on the home page. It runs independently of Android hardware, PostgreSQL, real accounts and carrier services. [Quick demo](../README.md#quick-demo)
+
+Run the shared commands below from the repository root. Install Core, Web and the shared TypeScript protocol from their individual lockfiles. Build the protocol first. Node.js 22 is recommended and the project declares `>=20.19 <23`. Android requires native JDK 17, SDK Platform 35 and the appropriate license, plus Gradle 8.x compatible with AGP 8.7.3 (8.9 or later). The repository omits a wrapper. Python tools require Python 3.10+. The demo and most offline fixtures need no platform sign-in. Obtain and verify missing dependencies in an authorized preparation environment. [Core build](../core/package.json) · [Android build](../android/build.gradle.kts) · [Telegram package](../adapters/telegram/pyproject.toml) · [Shared build and test commands](#native-builds-and-checks)
+
+### Fresh installation and startup
+
+1. Prepare a dedicated native PostgreSQL database. Use PostgreSQL 14 or a compatible newer version, loopback isolation, private configuration, an empty database, a dedicated role and synthetic data. Keep adapters and probes disabled. Restrict the current Android cleartext bind flow to an isolated environment while authenticated transport and access controls are unresolved. [Configuration shape](#shared-configuration-example)
+2. Build protocol, Core and Web. Host the static Web bundle on the same origin, configure SPA fallback, and forward `/api` and `/ws` with WebSocket upgrades. Core serves the API and WebSocket routes. Provide the static entry point separately. `VITE_API_BASE` is available for a controlled build. Validate proxy and platform settings on the intended target. [Build commands](#native-builds-and-checks) · [Core startup](../core/src/main.ts) · [Web API client](../web/src/api/client.ts)
+3. With Core stopped, run `migrate` and verify the applied migration versions. Use `SELECT version FROM schema_migration ORDER BY version` on the dedicated database and compare the result with the migrations directory. Run `admin:create --username demo-admin` to create the first test administrator. It requires an interactive terminal and prompts for a password of at least 10 characters twice. Start a single Core per database. Normal startup also applies outstanding migrations before listening. Stop with Ctrl+C and confirm exit, draining and lock release before a replacement starts. [CLI and startup](#shared-cli-commands)
+4. In the authorized acceptance environment, check that `GET /api/health` reports `data.ok=true` and `data.db=ok`. Use a synthetic administrator to verify login and readback on Devices and SMS. Authorize any physical-device connection separately. Verify the binding, current connection, SIM readiness and permissions before a device test. [Release gates](RELEASE-CHECKLIST.md)
+
+### First Android binding
+
+In an authorized isolated setup, sign in as administrator, open the binding dialog on Devices, and keep the issued record ID. On an authorized fresh Android installation, enter the checked HTTP origin and six-digit code. Confirm the address and the binding action. Check the stored Android identity against the Core record, then wait for the matching connection and SIM status. Treat the QR payload and code as short-lived sensitive data. [Web binding UI](../web/src/features/devices/binding.tsx) · [Android UI](../android/app/src/main/kotlin/io/voipgw/gateway/ui/MainActivity.kt)
+
+### Failure reconciliation
+
+| Situation | Operator action |
+| --- | --- |
+| Android shows an unknown binding outcome | Preserve app data, the original code record and pending credential. Use the app’s resume control for the same attempt after backoff. Confirm the correlated Core result and durable Android readback. Expiry, rate limits, HTTP errors, timeout and an empty list cannot settle an earlier transaction by themselves. |
+| Code loss, possible duplicate binding, or a restored installation | Open Binding records on the Devices page, select the verified `recordId`, review the linked device, and confirm cancellation. Verify durable cancellation and any required session and media teardown on the authoritative primary. Reconcile the same record if cleanup is uncertain. Investigate the old device, credential and queue before authorizing a new binding. Automatic reassignment of old identity, SMS or unscoped records is unsupported. |
+| Terminal connection, an upgrade that requires reconciliation, or storage failure | Preserve the Android databases and associated journals, including any WAL or rollback journal. Treat them as sensitive. Verify the device, Core authorization, binding identity and retained queue. Use a complete quiescent copy for authorized offline inventory. |
+| Web SMS submission times out or shows a pending intent | Preserve the administrator, API origin, SIM, recipient, message and idempotency key. Use the SMS page to read back the original key. Clear the local intent after a matching record is verified or explicitly resume the same intent where available. Session storage follows the browser session lifecycle. An absent read can race a late commit. |
+| Core task is `unknown` or ACK and result conflict | Inspect the original task, attempt, device/SIM, events and audit. Verify durability of the claim, ACK and result separately. Preserve and reconcile the task. Avoid a fresh key or a direct state change. A system send callback alone cannot prove carrier delivery. |
+| Inbound SMS is quarantined or the device stalls on one event | Verify the custody mode, relevant alert, event ID and device. The designated administrator can inspect metadata and make an audited, authorized single-record export. Protect the export as sensitive data. Verify durability, exact replay and restoration before enabling the ACK mode. Preserve the Android outbox. |
+| SMS rate change has an unknown commit outcome | Confirm the old Core has stopped and reconcile the setting and pending tasks on the authoritative primary. Verify the effective rate before restarting under exclusive ownership. New sends are held after an uncertain rate write. Queued records are retained. |
+| Core loses its lock, or migration/commit outcome is uncertain | Stop writes to the database. Confirm the previous process and session are gone. Inspect `schema_migration`, schema and related records on the authoritative primary before restarting, continuing or restoring a rehearsed backup. Preserve logs, evidence and business data. Each migration commits its version record with the SQL. |
+
+See [states and ACKs](IMPLEMENTATION.md#sms-scheduling-and-acks), [custody modes](IMPLEMENTATION.md#exceptional-sms-custody) and [offline inventory](../tools/COMMAND-INVENTORY.md).
+
+The native USB Shizuku helper runs separately and requires a compatible host, explicitly enrolled serials and authorized ADB access. Its process reports and Android’s own binder observation provide separate status signals. Record physical-device and audio verification separately.
+
+原生 USB Shizuku 助手独立运行，需要兼容宿主机、明确登记的设备序列号及经授权的 ADB 访问。宿主机进程报告与 Android 的 Binder 观察分别提供状态。真机和音频验证另记。[Shizuku USB helper / USB 助手](../tools/shizuku-autostart/README.md)
+
+## Native builds and checks
+
+Install only with an authorized registry or fully provisioned npm cache. The commands request offline installation using the checked-in package lockfiles. `node_modules` must match the target OS and architecture. When the cache misses, provision the applicable locked dependency in the approved environment before retrying.
+
+仅使用经授权的注册表或完整的 npm 缓存。命令使用仓库中的包锁文件要求离线安装。`node_modules` 必须与目标操作系统和架构匹配。若缓存缺失，先在经授权的环境准备对应的锁定依赖。
+
+```sh
+npm --prefix packages/protocol ci --workspaces=false --offline
+npm --prefix packages/protocol run build --workspaces=false
+npm --prefix core ci --workspaces=false --offline
+npm --prefix web ci --workspaces=false --offline
+npm --prefix core run build --workspaces=false
+npm --prefix web run build --workspaces=false
+```
+
+Build and verify Android with its native SDK and local Gradle cache. Use `gradle.bat` if that is the installed Windows entry point. The APK is emitted under `android/app/build/outputs/apk/debug/`. Use the package checks and focused test paths below from the repo root.
+
+Android 使用原生 SDK 和本地 Gradle 缓存构建。Windows 可以使用已安装的 `gradle.bat`。APK 在 `android/app/build/outputs/apk/debug/` 下生成。包检查与聚焦测试从仓库根目录执行。
+
+```sh
+gradle --offline -p android :protocol:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+npm --prefix packages/protocol run check --workspaces=false
+npm --prefix core run check --workspaces=false
+npm --prefix web run check --workspaces=false
+npm --prefix web run i18n:check --workspaces=false
+node --test adapters/qq/test/client.test.mjs adapters/qq/test/shared-fixtures.test.mjs
+python -B -m unittest discover -s tools -p test_sms_intent_model.py -v
+```
+
+Telegram fixture tests load local source using `PYTHONPATH`. Example for Bash / Bash 示例。
+
+```sh
+PYTHONPATH=adapters/telegram/src python -B -m unittest discover -s adapters/telegram/tests -v
+```
+
+Use pre-cached dependencies for these focused Core and Web checks. PostgreSQL-dependent suites need their own isolated database and setup. Consult the corresponding fixture before running them.
+
+从依赖缓存运行以下 Core 与 Web 聚焦测试。依赖 PostgreSQL 的测试有单独的隔离库和配置前提，运行前检查对应测试夹具。
+
+```sh
+npm --prefix core run test --workspaces=false -- test/binding-v2-http.test.ts test/binding-v2-repo.test.ts test/db-ownership.test.ts test/migrate-lifecycle.test.ts test/sms-dispatch-stop.test.ts test/sms-attempt-repo.test.ts
+npm --prefix core run test --workspaces=false -- test/sim-rate-limiter.test.ts test/sms-rate-runtime.test.ts test/sms-rate-scheduling.test.ts test/sms-maintenance-invalidation.test.ts test/sms-maintenance-invalidation-extra.test.ts test/web-calls.test.ts test/http.test.ts
+npm --prefix web run test --workspaces=false -- src/features/sms/send-sms.test.tsx src/features/sms/quarantine-inventory.test.tsx src/features/settings/account-settings.test.tsx src/features/devices/binding.test.tsx
+node --test tools/demo/demo.test.mjs
+```
+
+The demo tests exercise the in-process request handler and use the existing Web build. Build Web first. [Demo tests](../tools/demo/demo.test.mjs)
+
+演示测试直接调用进程内请求处理器并读取 Web 产物，需要先构建 Web。[演示测试](../tools/demo/demo.test.mjs)
+
+## Shared configuration example
+
+Create a private TOML file. Fill the example placeholders locally and use private, existing directories for paths. Keep paired Android devices and all production data out of the fresh-install fixture. Keep real passwords, tokens, QR payloads and message contents out of the repository and logs.
+
+配置私有 TOML 文件，在本地填写占位项并使用独立的已有目录。首次安装夹具使用独立数据库和合成数据。勿把真实密码、令牌、二维码内容或短信正文写入仓库和日志。
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 47860
+public_host = "127.0.0.1"
+
+[database]
+host = "127.0.0.1"
+port = 5432
+database = "DEDICATED_DATABASE"
+user = "DEDICATED_USER"
+password = "FILL_IN_PRIVATELY"
+
+[paths]
+assets = "PRIVATE_ASSET_DIRECTORY"
+web = "WEB_DIST_DIRECTORY"
+run = "PRIVATE_RUNTIME_DIRECTORY"
+
+[adapters.qq]
+enabled = false
+socket = "PRIVATE_RUNTIME_DIRECTORY/qq.sock"
+
+[adapters.telegram]
+enabled = false
+socket = "PRIVATE_RUNTIME_DIRECTORY/telegram.sock"
+api_id = 0
+api_hash = ""
+
+[log]
+level = "info"
+
+[test]
+probe_api = false
+probe_answer_inbound = false
+```
+
+Use `VOIPGW_SMS_CUSTODY_MODE=disabled` for the baseline and leave `VOIPGW_SMS_CUSTODY_ADMIN_ID` unset. To enable `retain` or `acknowledge`, configure the administrator ID from the target environment and verify the custody prerequisites and recovery workflow. Keep integration flags and adapter credentials private.
+
+基线使用 `VOIPGW_SMS_CUSTODY_MODE=disabled`，不设置 `VOIPGW_SMS_CUSTODY_ADMIN_ID`。启用 `retain` 或 `acknowledge` 时，配置目标环境中的管理员 ID，并验证托管前提与恢复流程。将集成开关和适配器凭据留在私有配置中。[配置实现 / Configuration](../core/src/config/load.ts) · [托管模式 / Custody modes](IMPLEMENTATION.md#exceptional-sms-custody)
+
+## Shared CLI commands
+
+Run against the dedicated database from the root of the checkout. Replace the TOML path before running. A fresh database has no administrator until the interactive step completes. The following is a Bash example for an authorized native integration environment.
+
+在仓库根目录使用专用数据库，先替换 TOML 路径。管理员需交互式创建。以下为经授权的原生集成环境中的 Bash 示例。
+
+```sh
+export VOIPGW_CONFIG="path/to/private-config.toml"
+export VOIPGW_MIGRATIONS="core/migrations"
+node core/dist/cli.js migrate
+node core/dist/cli.js admin:create --username demo-admin
+node core/dist/main.js
+```
+
+PowerShell uses `$env:VOIPGW_CONFIG` and `$env:VOIPGW_MIGRATIONS`. Review [staging instructions](partial-core-web-deployment.md) for the optional Core/Web staging archive and its registry and native dependency requirements. For authorized reconciliation, the Core CLI provides `command-id:inventory` as a read-only PostgreSQL report. An Android command inventory needs quiescent, consistent, authorized SQLite copies. Protect the output and check the report’s completion before comparing identities. [Core inventory command](../core/src/cli/command-id-inventory.ts) · [SQLite inventory](../tools/COMMAND-INVENTORY.md)
+
+PowerShell 使用 `$env:VOIPGW_CONFIG` 和 `$env:VOIPGW_MIGRATIONS`。可选的 Core/Web 打包涉及注册表与原生依赖，见 [隔离部署记录](partial-core-web-deployment.md)。经授权对账时，Core CLI 的 `command-id:inventory` 从 PostgreSQL 只读生成盘点报告。Android 命令盘点要求经授权的静止一致 SQLite 副本。保护输出并核对报告完成状态后再比较身份。[Core 盘点命令](../core/src/cli/command-id-inventory.ts) · [SQLite 盘点](../tools/COMMAND-INVENTORY.md)

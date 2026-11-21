@@ -1,0 +1,2 @@
+import {it,expect,vi} from 'vitest';import {makeDeviceEventProducer} from '../src/devices/event-producer.js';
+it('wakes the outbox for inserted and duplicate incoming events without direct publishing',async()=>{const incomingSms=vi.fn();let calls=0;const producer=makeDeviceEventProducer({handle:async()=>++calls===1?'inserted':'duplicate',incomingSms});const event={id:'evt',type:'sms.received',ts:1,payload:{}};expect(await producer('dev',event)).toBe(true);expect(await producer('dev',event)).toBe(true);expect(incomingSms).toHaveBeenCalledTimes(2);});

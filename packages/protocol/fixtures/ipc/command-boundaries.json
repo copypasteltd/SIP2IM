@@ -1,0 +1,9 @@
+[
+  { "name": "unknown-login-step", "type": "account.login.submit", "payload": { "step": "unknown", "value": "fixture" }, "valid": false },
+  { "name": "non-string-message-text", "type": "message.send", "payload": { "userId": "fixture-user", "text": 1 }, "valid": false },
+  { "name": "minimum-audio-channel", "type": "call.dial", "payload": { "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV", "userId": "fixture-user", "audioChannel": 0 }, "valid": true },
+  { "name": "overflow-audio-channel", "type": "call.dial", "payload": { "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV", "userId": "fixture-user", "audioChannel": 256 }, "valid": false },
+  { "name": "fractional-audio-channel", "type": "call.dial", "payload": { "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV", "userId": "fixture-user", "audioChannel": 1.5 }, "valid": false },
+  { "name": "wrong-call-id-prefix", "type": "call.hangup", "payload": { "callId": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV" }, "valid": false },
+  { "name": "missing-ack-error", "type": "ack", "payload": { "refId": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV", "ok": true }, "valid": false }
+]

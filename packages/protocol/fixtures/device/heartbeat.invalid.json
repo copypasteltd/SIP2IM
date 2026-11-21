@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "heartbeat",
+  "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "ts": 1794700000000,
+  "payload": {
+    "battery": 101,
+    "charging": null,
+    "network": "none",
+    "signalDbm": null,
+    "shizuku": "unsupported",
+    "paused": false
+  }
+}

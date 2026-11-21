@@ -1,0 +1,14 @@
+[Unit]
+Description=VOIP gateway Shizuku USB autostart
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=VOIP_CORE_PORT=47860
+ExecStart=/usr/bin/node /opt/voip-gateway/tools/shizuku-autostart/index.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+# Settings concurrency
+
+Core settings updates acquire the reserved PostgreSQL transaction advisory lock `(198247303, 1)` before reading the full state, validating the merged heartbeat/offline interval, writing, and reading the resulting snapshot. The transaction helper returns snapshots only after a verified COMMIT; an uncertain COMMIT is reported as an error, and a client release failure after a confirmed COMMIT is reported separately. Effects are local, ordered, best effort, and only scheduled after a successful repository return.
+
+The lock is cooperative: every writer must take this exact lock. Older Core versions, direct SQL, and other nonparticipating writers can violate the invariant; this is not a database constraint. Deployments must ensure all settings writers cooperate. Settings reads now query the database each time, adding latency and propagating read failures; a fresh read after an uncertain write does not establish that a late commit cannot occur. Other instances do not automatically receive local effects.
+
+Conditional clients use `PUT /api/settings/conditional` with `{"changes":{"heartbeatSec":40},"expected":{"heartbeatSec":30}}` (backticks delimit code). Both objects must be nonempty and contain exactly the same known field names, with values valid for each field, including explicit null only for nullable fields. Values compare by scalar value (including numeric equality) under the transaction lock before any write. A mismatch returns HTTP 409 `SETTINGS_CONFLICT` with null details and no snapshot, writes, or settings effects; clients should refetch. Matching compares current values, so an ABA change back to the expected value is not detected.
+
+Deploy Core supporting the conditional route before conditional clients; old Core returns 404 on this distinct route. Legacy `PUT /api/settings` and `PUT /api/channels/inbound` remain unconditional and can overwrite conditional changes. Protection requires cooperating upgraded writers using this conditional endpoint; direct SQL and old writers cannot be guarded. Commit uncertainty remains: 503 outcomes require reconciliation and a read alone does not prove an earlier uncertain write has settled.
+
+Tests use in-memory fakes only. Real PostgreSQL locking, failure timing, and integration have not been tested.

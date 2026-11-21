@@ -1,0 +1,15 @@
+:root{--bg:#E2DCCB;--surface:#F4F0E4;--surface-2:#EAE4D3;--text:#1D1B16;--muted:#625B4D;--line:#C4BBA4;--line-soft:#D6CFBC;--primary:#A8322D;--primary-ink:#FFF7EA;--ok:#2B6249;--warn:#87590C;--err:#A8322D;--unk:#69635A;--live:#B12E28;--radius:6px;--radius-sm:4px;--chip-radius:3px;--nav-bg:#1E3A32;--nav-text:#E8DFC6;--nav-muted:#A9B79F;--nav-border:0;--nav-hover:#25463C;--nav-active-bg:#2B4C42;--nav-active-text:#F3D98B;--font-display:"Bahnschrift","DIN Alternate","Microsoft YaHei UI","PingFang SC",sans-serif;--font-body:"Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif;--font-mono:"Cascadia Mono","Consolas",monospace;--font-num:"Bahnschrift","DIN Alternate","Consolas",sans-serif;--label-case:uppercase;--label-ls:.08em;--h2:13px;--h2-case:uppercase;--h2-ls:.1em;--kpi-size:36px;--kpi-weight:600;--chip-color:#B8913A;--phone-frame:#1E3A32}
+.brand-mark{border-radius:50%;background:radial-gradient(circle,#14281F 0 4px,#C9A246 5px 8px,#14281F 9px 11px,#C9A246 12px 15px)}
+.brand b{letter-spacing:.06em}
+.nav a.item svg{display:none}
+.nav a.item::before{content:"";width:14px;height:14px;border-radius:50%;flex:none;background:#10221B;border:3px solid #B8913A}
+.nav a.item.active::before{background:#C23A33;border-color:#F3D98B;box-shadow:0 0 0 3px rgba(194,58,51,.35)}
+.kpi{border-top:4px solid #1E3A32}
+.kpi-label{align-self:flex-start;background:#EBDDB0;border:1px solid #B8913A;color:#3B2F12;padding:1px 7px;border-radius:2px;font-weight:700}
+th{background:#1E3A32;color:#E8DFC6;border-bottom:0}
+.card h2{color:#1E3A32;border-bottom:2px solid #1E3A32;padding-bottom:8px}
+.live{outline:2px solid #B12E28;outline-offset:-2px}
+.link-line{height:16px;background:none;border:3px solid #B12E28;border-bottom:0;border-radius:30px 30px 0 0}
+.chan-badge{background:#1E3A32;color:#F3D98B;border-color:#B8913A}
+.btn.primary{box-shadow:inset 0 -2px 0 rgba(0,0,0,.25)}
+.topline h1{letter-spacing:.04em}

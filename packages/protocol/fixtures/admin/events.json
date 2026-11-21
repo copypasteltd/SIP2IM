@@ -1,0 +1,375 @@
+[
+  {
+    "valid": {
+      "type": "device.updated",
+      "ts": 1,
+      "data": {
+        "id": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "name": "phone",
+        "enabled": true,
+        "paused": false,
+        "callEnabled": false,
+        "online": false,
+        "lastSeenAt": null,
+        "manufacturer": null,
+        "model": null,
+        "apiLevel": null,
+        "capabilityLevel": null,
+        "apkVersion": null,
+        "defaultSimId": null,
+        "sims": [],
+        "status": {
+          "battery": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "charging": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "network": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "signalDbm": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "shizuku": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          }
+        },
+        "inCall": false
+      }
+    },
+    "invalid": {
+      "type": "device.updated",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "device.online",
+      "ts": 1,
+      "data": {
+        "id": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "name": "phone",
+        "enabled": true,
+        "paused": false,
+        "callEnabled": false,
+        "online": false,
+        "lastSeenAt": null,
+        "manufacturer": null,
+        "model": null,
+        "apiLevel": null,
+        "capabilityLevel": null,
+        "apkVersion": null,
+        "defaultSimId": null,
+        "sims": [],
+        "status": {
+          "battery": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "charging": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "network": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "signalDbm": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "shizuku": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          }
+        },
+        "inCall": false
+      }
+    },
+    "invalid": {
+      "type": "device.online",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "device.offline",
+      "ts": 1,
+      "data": {
+        "id": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "name": "phone",
+        "enabled": true,
+        "paused": false,
+        "callEnabled": false,
+        "online": false,
+        "lastSeenAt": null,
+        "manufacturer": null,
+        "model": null,
+        "apiLevel": null,
+        "capabilityLevel": null,
+        "apkVersion": null,
+        "defaultSimId": null,
+        "sims": [],
+        "status": {
+          "battery": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "charging": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "network": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "signalDbm": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          },
+          "shizuku": {
+            "value": null,
+            "observedAt": null,
+            "stale": true
+          }
+        },
+        "inCall": false
+      }
+    },
+    "invalid": {
+      "type": "device.offline",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "sms.new",
+      "ts": 1,
+      "data": {
+        "id": "sms_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deviceId": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "simId": null,
+        "direction": "in",
+        "peer": "123",
+        "peerKind": "short",
+        "body": "hello",
+        "parts": 1,
+        "occurredAt": 1,
+        "task": null
+      }
+    },
+    "invalid": {
+      "type": "sms.new",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "sms.task.updated",
+      "ts": 1,
+      "data": {
+        "smsMessageId": "sms_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "task": {
+          "id": "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "state": "queued",
+          "errorCode": null,
+          "origin": "admin",
+          "updatedAt": 1
+        }
+      }
+    },
+    "invalid": {
+      "type": "sms.task.updated",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "call.updated",
+      "ts": 1,
+      "data": {
+        "id": "ses_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "kind": "web_out",
+        "state": "ended",
+        "deviceId": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "simId": null,
+        "peer": null,
+        "peerKind": null,
+        "platform": null,
+        "startedAt": 1,
+        "answeredAt": null,
+        "endedAt": null,
+        "endCause": null,
+        "promptPlayed": false,
+        "earlyMediaForwarded": false,
+        "legs": []
+      }
+    },
+    "invalid": {
+      "type": "call.updated",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "channel.updated",
+      "ts": 1,
+      "data": {
+        "platform": "qq",
+        "state": "logged_out",
+        "selfId": null,
+        "alias": null,
+        "capabilities": {
+          "login": false,
+          "sendMessage": false,
+          "receiveMessage": false,
+          "dial": false,
+          "receiveAudio": false,
+          "sendAudio": false,
+          "maxConcurrentCalls": 0
+        },
+        "voiceVerified": false,
+        "isInbound": true,
+        "busy": false,
+        "pairedUser": null
+      }
+    },
+    "invalid": {
+      "type": "channel.updated",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "channel.login.step",
+      "ts": 1,
+      "data": {
+        "platform": "qq",
+        "step": "qr",
+        "qrPngBase64": null,
+        "hint": null
+      }
+    },
+    "invalid": {
+      "type": "channel.login.step",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "pairing.updated",
+      "ts": 1,
+      "data": {
+        "platform": "qq",
+        "pairedUser": null
+      }
+    },
+    "invalid": {
+      "type": "pairing.updated",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "alert.raised",
+      "ts": 1,
+      "data": {
+        "id": "alr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "type": "x",
+        "subjectType": "device",
+        "subjectId": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "severity": "warning",
+        "state": "open",
+        "detail": {},
+        "firstAt": 1,
+        "lastAt": 1,
+        "pushedAt": null,
+        "resolvedAt": null
+      }
+    },
+    "invalid": {
+      "type": "alert.raised",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "alert.resolved",
+      "ts": 1,
+      "data": {
+        "id": "alr_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "type": "x",
+        "subjectType": "device",
+        "subjectId": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "severity": "warning",
+        "state": "open",
+        "detail": {},
+        "firstAt": 1,
+        "lastAt": 1,
+        "pushedAt": null,
+        "resolvedAt": null
+      }
+    },
+    "invalid": {
+      "type": "alert.resolved",
+      "ts": 1,
+      "data": {}
+    }
+  },
+  {
+    "valid": {
+      "type": "settings.updated",
+      "ts": 1,
+      "data": {
+        "inboundPlatform": "qq",
+        "inboundRingTimeoutSec": 20,
+        "outboundUserAnswerTimeoutSec": 15,
+        "outboundCalleeAnswerTimeoutSec": 30,
+        "outboundCallbackRingTimeoutSec": 30,
+        "smsForward": true,
+        "smsRatePerMin": 10,
+        "defaultDeviceId": null,
+        "botLocale": "en",
+        "heartbeatSec": 30,
+        "offlineAfterSec": 90,
+        "alertPushIntervalSec": 1800,
+        "earlyMediaThresholdDbfs": -50
+      }
+    },
+    "invalid": {
+      "type": "settings.updated",
+      "ts": 1,
+      "data": {}
+    }
+  }
+]

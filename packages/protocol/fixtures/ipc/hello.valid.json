@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "adapter.hello",
+  "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "ts": 1794700000000,
+  "payload": {
+    "platform": "qq",
+    "adapterVersion": "1.0",
+    "protocol": 1
+  }
+}

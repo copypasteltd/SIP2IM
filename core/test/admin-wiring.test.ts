@@ -1,0 +1,4 @@
+import {it,expect} from 'vitest';
+import {openAdminSession} from '../src/ws-admin/session.js';
+import {AdminHub} from '../src/ws-admin/hub.js';
+it('registers only authenticated sockets and removes them on close',async()=>{let valid=true;const sent:string[]=[],closed:number[]=[];const socket={send:(v:string)=>sent.push(v),close:(c:number)=>closed.push(c)};const auth=async(t:string)=>valid&&t==='valid'?'admin':null;const hub=new AdminHub(auth);const session=openAdminSession(socket,auth,t=>hub.add(socket,t),()=>hub.remove(socket));await hub.publish('device.online',{});expect(sent).toHaveLength(0);await session.message(JSON.stringify({type:'auth',token:'valid'}));await hub.publish('device.online',{});expect(sent).toHaveLength(1);valid=false;await hub.publish('device.updated',{});expect(closed).toEqual([4403]);session.close();await hub.publish('device.offline',{});expect(sent).toHaveLength(1);});

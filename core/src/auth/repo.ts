@@ -1,0 +1,8 @@
+import type pg from 'pg';
+import { transaction } from '../db/pool.js';
+import type { Admin, AuthRepository, AuthTransaction } from './service.js';
+export class PgAuthRepository implements AuthRepository {
+ constructor(private readonly pool: pg.Pool) {}
+ async withAdmin<T>(username: string, fn: (admin: Admin | null, tx: AuthTransaction) => Promise<T>): Promise<T> { return transaction(this.pool,async client => { const result = await client.query('SELECT id,password_hash,failed_count,locked_until FROM admin WHERE username=$1 FOR UPDATE',[username]); const row = result.rows[0] as {id:string;password_hash:string;failed_count:number;locked_until:Date|null}|undefined; const admin = row ? {id:row.id,passwordHash:row.password_hash,failedCount:row.failed_count,lockedUntil:row.locked_until} : null; const tx: AuthTransaction = { setFailure: async (id,count,until) => {await client.query('UPDATE admin SET failed_count=$2,locked_until=$3,updated_at=now() WHERE id=$1',[id,count,until]);}, createSession: async (id,hash,expires) => {await client.query('INSERT INTO admin_session(admin_id,token_hash,expires_at) VALUES ($1,$2,$3)',[id,hash,expires]);}, setPassword: async (id,hash) => {await client.query('UPDATE admin SET password_hash=$2,updated_at=now() WHERE id=$1',[id,hash]);}, revokeSessions: async id => {await client.query('DELETE FROM admin_session WHERE admin_id=$1',[id]);} }; return fn(admin,tx); }); }
+ async findSession(hash: Buffer, now: Date): Promise<string|null> { const r=await this.pool.query('SELECT admin_id FROM admin_session WHERE token_hash=$1 AND expires_at>$2',[hash,now]); return (r.rows[0] as {admin_id:string}|undefined)?.admin_id ?? null; }
+}

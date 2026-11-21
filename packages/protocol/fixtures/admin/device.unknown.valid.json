@@ -1,0 +1,48 @@
+{
+  "type": "device.updated",
+  "ts": 1,
+  "data": {
+    "id": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "name": "phone",
+    "enabled": true,
+    "paused": false,
+    "callEnabled": false,
+    "online": true,
+    "lastSeenAt": 1,
+    "manufacturer": null,
+    "model": null,
+    "apiLevel": null,
+    "capabilityLevel": null,
+    "apkVersion": null,
+    "defaultSimId": null,
+    "sims": [],
+    "status": {
+      "battery": {
+        "value": null,
+        "observedAt": null,
+        "stale": true
+      },
+      "charging": {
+        "value": null,
+        "observedAt": null,
+        "stale": true
+      },
+      "network": {
+        "value": "unknown",
+        "observedAt": 1,
+        "stale": false
+      },
+      "signalDbm": {
+        "value": null,
+        "observedAt": null,
+        "stale": true
+      },
+      "shizuku": {
+        "value": "unknown",
+        "observedAt": 1,
+        "stale": false
+      }
+    },
+    "inCall": false
+  }
+}

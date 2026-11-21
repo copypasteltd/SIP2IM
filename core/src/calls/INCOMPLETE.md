@@ -1,0 +1,7 @@
+# Cellular call event handling
+
+Core records incoming calls and cellular legs in the device-event transaction. A current authenticated connection can negotiate generation-aware history through hello. Core records the generation and connection identity in a call event attached to the cellular leg. It isolates reused generations and legacy call ID collisions. It preserves raw evidence when the generation is missing, unbound, or cannot be attributed safely. An unambiguous disconnected event ends an incoming session. Reordering requires a matching Core admission record from the same connection. A newly authenticated and negotiated connection can record a terminal event for an already-bound generation.
+
+The rejection worker expires uncertain intents in the default configuration. Sending requires an independently verified port and exact current attachment. Such a port must enforce the full call identity and ringing state at the point of the device action. For a verified peer, an accepted command leaves the call awaiting terminal evidence. An unresolved claim, rejection error, or expired acknowledgement leaves the outcome unknown. Recovery avoids retrying uncertain actions.
+
+Browser call orchestration owns the decision to bridge an active cellular leg with authorized media. The cellular projection records active observations and preserves disconnected evidence across reconnect. The repository supports targeted fake-port and fake-database tests. Real Android call control, platform voice, and carrier media still require device-specific verification.

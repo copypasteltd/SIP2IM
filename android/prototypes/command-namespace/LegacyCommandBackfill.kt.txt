@@ -1,0 +1,59 @@
+package io.voipgw.gateway.core
+
+import android.content.ContentValues
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+
+/** Stages retained legacy data only. No code promotes this unverified snapshot to runnable. */
+object LegacyCommandBackfill {
+    fun stage(context: Context) {
+        val source = context.getDatabasePath("command_ledger.db")
+        check(source.isFile) { "Legacy ledger missing; history cannot be established" }
+        val old = SQLiteDatabase.openDatabase(source.path, null, SQLiteDatabase.OPEN_READONLY)
+        val helper = Outbox(context)
+        try {
+            check(old.version in 1..3) { "Unsupported legacy ledger version" }
+            val db = helper.writableDatabase
+            db.beginTransaction()
+            try {
+                val state = db.rawQuery("SELECT state FROM command_migration WHERE id = 1", null).use { check(it.moveToFirst()); it.getString(0) }
+                check(state == "legacy_unverified")
+                check(db.rawQuery("SELECT COUNT(*) FROM command_namespace", null).use { it.moveToFirst(); it.getLong(0) == 0L })
+                db.rawQuery("SELECT command_id, payload, error FROM sms_command", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        check(!cursor.isNull(0) && !cursor.isNull(1))
+                        db.insertOrThrow("command_namespace", null, ContentValues().apply {
+                            put("id", cursor.getString(0)); put("command_type", "sms.send"); put("payload", cursor.getString(1))
+                            put("error", if (cursor.isNull(2)) "" else cursor.getString(2)); put("ambiguous", 0)
+                        })
+                    }
+                }
+                val columns = if (old.version < 2) "id, error, NULL, NULL" else "id, error, command_type, payload"
+                old.rawQuery("SELECT $columns FROM acknowledgments", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        check(!cursor.isNull(0) && !cursor.isNull(1))
+                        val id = cursor.getString(0)
+                        val ambiguous = cursor.isNull(2) || cursor.isNull(3)
+                        val inserted = db.insertWithOnConflict("command_namespace", null, ContentValues().apply {
+                            put("id", id); put("error", cursor.getString(1))
+                            if (cursor.isNull(2)) putNull("command_type") else put("command_type", cursor.getString(2))
+                            if (cursor.isNull(3)) putNull("payload") else put("payload", cursor.getString(3))
+                            put("ambiguous", if (ambiguous) 1 else 0)
+                        }, SQLiteDatabase.CONFLICT_IGNORE)
+                        if (inserted == -1L) {
+                            check(db.update("command_namespace", ContentValues().apply { put("ambiguous", 1) }, "id = ?", arrayOf(id)) == 1)
+                        }
+                    }
+                }
+                if (old.version >= 3) old.rawQuery("SELECT key, value FROM config", null).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        check(!cursor.isNull(0) && !cursor.isNull(1))
+                        db.insertOrThrow("command_config", null, ContentValues().apply { put("key", cursor.getString(0)); put("value", cursor.getString(1)) })
+                    }
+                }
+                check(db.update("command_migration", ContentValues().apply { put("state", "staged_unverified") }, "id = 1 AND state = ?", arrayOf("legacy_unverified")) == 1)
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+        } finally { helper.close(); old.close() }
+    }
+}

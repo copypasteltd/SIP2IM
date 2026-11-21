@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VOIP 网关 · 前端方向选型（10 套原型）</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#F3F4F6;color:#15171C;font:15px/1.6 "Segoe UI","Microsoft YaHei UI","PingFang SC",sans-serif}
+a{color:inherit}
+:focus-visible{outline:2px solid #2D5BD7;outline-offset:2px}
+header{max-width:1400px;margin:0 auto;padding:40px 28px 8px}
+header h1{margin:0 0 10px;font-size:30px;letter-spacing:-.01em}
+header p{margin:6px 0;max-width:900px;color:#40434B}
+.note{font-size:13px;color:#646873}
+#grid{max-width:1400px;margin:0 auto;padding:20px 28px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
+.tcard{background:#fff;border:1px solid #DDE0E5;border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.pv{display:block;position:relative;aspect-ratio:16/10;overflow:hidden;border-bottom:1px solid #DDE0E5;background:#E9EBEF}
+.pv iframe{position:absolute;top:0;left:0;width:1440px;height:900px;border:0;transform-origin:0 0;pointer-events:none}
+.meta{padding:16px 20px 20px;display:flex;flex-direction:column;gap:8px}
+.meta p{margin:0;font-size:14px;color:#3A3D45}
+.ttl{display:flex;align-items:baseline;gap:12px}
+.no{font:700 13px/1 Consolas,monospace;color:#8A8E98}
+.ttl h2{margin:0;font-size:20px}
+.ttl small{font-size:13px;color:#8A8E98;font-weight:500}
+.tone{font-size:13px!important;color:#646873!important}
+.sw{display:flex;gap:6px}
+.sw span{width:34px;height:20px;border-radius:5px;border:1px solid rgba(0,0,0,.12)}
+.apk{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px!important}
+.b{font-size:12px;font-weight:700;padding:1px 9px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.b.ok{color:#17784A}.b.mid{color:#9A600E}.b.low{color:#C0392B}
+.links{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.links a{font-size:13px;text-decoration:none;padding:4px 10px;border:1px solid #DDE0E5;border-radius:999px}
+.links a:hover{background:#F3F4F6}
+section{max-width:1400px;margin:0 auto;padding:12px 28px 60px}
+section h2{font-size:20px}
+.tw{overflow-x:auto;background:#fff;border:1px solid #DDE0E5;border-radius:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:10px 12px;border-bottom:1px solid #ECEEF1;text-align:left;vertical-align:top}
+th{background:#F8F9FA;white-space:nowrap}
+@media (max-width:900px){#grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<h1>前端方向选型 · 10 套原型</h1>
+<p>每套原型都包含 Admin 的 9 个功能页、设备详情页、登录页，以及手机端 APK 的 3 个屏幕。10 套共用同一份示例数据和同一套页面结构，只改变视觉方向与导航布局，方便逐页对比。</p>
+<p>打开任意一套后，右上角可以直接切换方案和语言（简体 / 繁體 / English），当前所在页面保持不变。</p>
+<p class="note">示例数据仅用于展示（含一台 Android 14 和一台 Android 4.4 的演示设备），不代表系统真实状态。共同约束与选型说明见 docs/13-前端设计规范与原型.md。</p>
+</header>
+<main id="grid"></main>
+<section>
+<h2>对比一览</h2>
+<div class="tw" id="cmp"></div>
+</section>
+<script src="shared/app.js"></script>
+<script>(function INDEX(){const T=window.VOIP_THEMES;const LAY={sidebar:'侧边栏',topbar:'顶部导航',rail:'图标导轨'};const AP={high:['高','ok'],mid:['中','mid'],low:['低','low']};
+ document.getElementById('grid').innerHTML=T.map(x=>`<article class="tcard"><a class="pv" href="${x.id}.html#dashboard" aria-label="打开 ${x.no} ${x.name}"><iframe src="${x.id}.html#dashboard" loading="lazy" tabindex="-1" title="${x.name} 预览"></iframe></a><div class="meta"><div class="ttl"><span class="no">${x.no}</span><h2>${x.name} <small>${x.en}</small></h2></div><p class="tone">${x.tone} · ${LAY[x.layout]}</p><p>${x.concept}</p><div class="sw">${x.sw.map(c=>`<span style="background:${c}" title="${c}"></span>`).join('')}</div><p class="apk"><span class="b ${AP[x.apk][1]}">APK 可实现性：${AP[x.apk][0]}</span>${x.apkNote}</p><nav class="links" aria-label="${x.name} 页面"><a href="${x.id}.html#dashboard">仪表盘</a><a href="${x.id}.html#devices">设备</a><a href="${x.id}.html#calls">通话</a><a href="${x.id}.html#channels">平台通道</a><a href="${x.id}.html#apk">手机端</a><a href="${x.id}.html#login">登录</a></nav></div></article>`).join('');
+ document.getElementById('cmp').innerHTML=`<table><thead><tr><th>编号</th><th>方案</th><th>色调</th><th>布局</th><th>字体</th><th>标志性元素</th><th>APK 可实现性</th><th>适合</th></tr></thead><tbody>${T.map(x=>`<tr><td>${x.no}</td><td><a href="${x.id}.html#dashboard"><b>${x.name}</b></a> ${x.en}</td><td>${x.tone}</td><td>${LAY[x.layout]}</td><td>${x.font}</td><td>${x.sig}</td><td><span class="b ${AP[x.apk][1]}">${AP[x.apk][0]}</span></td><td>${x.fit}</td></tr>`).join('')}</tbody></table>`;
+ const fit=()=>document.querySelectorAll('.pv').forEach(p=>{p.querySelector('iframe').style.transform='scale('+(p.clientWidth/1440)+')'});
+ if(window.ResizeObserver)new ResizeObserver(fit).observe(document.getElementById('grid'));fit();window.addEventListener('resize',fit)})();</script>
+</body>
+</html>

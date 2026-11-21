@@ -1,0 +1,332 @@
+[
+  {
+    "valid": {
+      "v": 1,
+      "type": "adapter.hello",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "platform": "qq",
+        "adapterVersion": "1",
+        "protocol": 1
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "adapter.hello",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "platform": "qq",
+        "adapterVersion": "1",
+        "protocol": 1
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "capabilities",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "login": true,
+        "sendMessage": true,
+        "receiveMessage": true,
+        "dial": false,
+        "receiveAudio": false,
+        "sendAudio": false,
+        "maxConcurrentCalls": 0
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "capabilities",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "login": true,
+        "sendMessage": true,
+        "receiveMessage": true,
+        "dial": false,
+        "receiveAudio": false,
+        "sendAudio": false,
+        "maxConcurrentCalls": 0
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "account.state",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "state": "logged_out",
+        "selfId": null,
+        "alias": null,
+        "detail": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "account.state",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "state": "logged_out",
+        "selfId": null,
+        "alias": null,
+        "detail": null
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "login.step",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "step": "qr",
+        "qrPngBase64": null,
+        "hint": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "login.step",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "step": "qr",
+        "qrPngBase64": null,
+        "hint": null
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "message.received",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "platformMessageId": "x",
+        "senderId": "x",
+        "senderName": null,
+        "chatType": "private",
+        "forwarded": false,
+        "isContact": null,
+        "text": "你好 🌍",
+        "ts": 1
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "message.received",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "platformMessageId": "x",
+        "senderId": "x",
+        "senderName": null,
+        "chatType": "private",
+        "forwarded": false,
+        "isContact": null,
+        "text": "你好 🌍",
+        "ts": 1
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "call.state",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "ended",
+        "cause": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.state",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "ended",
+        "cause": null
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "call.incoming.rejected",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "fromUserId": "x",
+        "ts": 1
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.incoming.rejected",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "fromUserId": "x",
+        "ts": 1
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "account.login",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {}
+    },
+    "invalid": {
+      "v": 2,
+      "type": "account.login",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {}
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "account.login.submit",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "step": "code",
+        "value": "123"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "account.login.submit",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "step": "code",
+        "value": "123"
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "account.logout",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {}
+    },
+    "invalid": {
+      "v": 2,
+      "type": "account.logout",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {}
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "message.send",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "userId": "x",
+        "text": "hi"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "message.send",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "userId": "x",
+        "text": "hi"
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "call.dial",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "userId": "x",
+        "audioChannel": 255
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.dial",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "userId": "x",
+        "audioChannel": 255
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "call.hangup",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "call.hangup",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    }
+  },
+  {
+    "valid": {
+      "v": 1,
+      "type": "ack",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "refId": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "ok": true,
+        "error": null
+      }
+    },
+    "invalid": {
+      "v": 2,
+      "type": "ack",
+      "id": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "refId": "ipc_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "ok": true,
+        "error": null
+      }
+    }
+  }
+]

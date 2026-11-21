@@ -1,0 +1,2 @@
+import {it,expect} from 'vitest';import {confirmedSimChange} from '../src/devices/sim-identity.js';
+it('only retires a SIM on confirmed identity change or explicit absence',()=>{const old={subId:7,carrier:'a',mcc:'460',mnc:'00',state:'ready'};expect(confirmedSimChange(old,{subId:null,carrier:null,mcc:null,mnc:null,state:'unknown'})).toBe(false);expect(confirmedSimChange(old,{...old,subId:8})).toBe(true);expect(confirmedSimChange(old,{...old,state:'absent'})).toBe(true);expect(confirmedSimChange(old,{...old,carrier:null})).toBe(false);});

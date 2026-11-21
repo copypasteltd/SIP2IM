@@ -1,0 +1,13 @@
+:root{--bg:#FFFFFF;--surface:#FFFFFF;--surface-2:#F2F2F2;--text:#0A0A0A;--muted:#555555;--line:#0A0A0A;--line-soft:#D9D9D9;--primary:#E30613;--primary-ink:#FFFFFF;--ok:#0A7A3D;--warn:#A85600;--err:#D7050F;--unk:#555555;--live:#E30613;--radius:0;--radius-sm:0;--chip-radius:0;--bubble-radius:0;--card-border:0;--nav-bg:#FFFFFF;--nav-border:2px solid #0A0A0A;--nav-hover:transparent;--nav-active-bg:transparent;--nav-active-text:#E30613;--font-display:"Helvetica Neue","Arial","Microsoft YaHei UI",sans-serif;--font-body:"Helvetica Neue","Arial","Microsoft YaHei UI",sans-serif;--font-mono:"Consolas","Menlo",monospace;--h1:44px;--h1-weight:800;--h1-ls:-.02em;--h2:13px;--h2-case:uppercase;--h2-ls:.06em;--kpi-size:60px;--kpi-weight:800;--gap:28px;--phone-frame:#0A0A0A}
+.card{border-top:2px solid #0A0A0A;padding:14px 0 0}
+.kpi{border:0;border-top:2px solid #0A0A0A;padding:12px 0 0;background:transparent}
+.kpi::before{content:"";position:absolute;top:14px;right:0;width:10px;height:10px;background:#E30613}
+.kpi-value{letter-spacing:-.04em}
+.nav a.item.active{text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:7px}
+.brand-mark{background:#E30613}
+.btn{border:2px solid #0A0A0A;font-weight:700}
+.btn.ghost{border-color:transparent;text-decoration:underline}
+.app-card{border:0;border-top:2px solid #0A0A0A;padding:10px 0}
+.app-body{background:#fff}
+.live .call-num{color:#E30613}
+.banner{border-style:solid}

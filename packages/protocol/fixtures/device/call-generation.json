@@ -1,0 +1,69 @@
+[
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "hello",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 1,
+      "payload": {
+        "token": "token",
+        "apkVersion": "1",
+        "apkCode": 1,
+        "protocol": 1,
+        "manufacturer": "M",
+        "model": "N",
+        "apiLevel": 30,
+        "locale": "en",
+        "capabilities": {
+          "callGeneration": true
+        }
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "call.incoming",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 2,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "generation": "gen_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "subId": null,
+        "slot": 0,
+        "from": null,
+        "fromKind": "unknown"
+      }
+    }
+  },
+  {
+    "direction": "event",
+    "valid": {
+      "v": 1,
+      "type": "call.state",
+      "id": "evt_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 3,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "generation": "gen_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "state": "disconnected",
+        "cause": null
+      }
+    }
+  },
+  {
+    "direction": "command",
+    "valid": {
+      "v": 1,
+      "type": "call.reject",
+      "id": "cmd_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "ts": 4,
+      "payload": {
+        "callId": "cal_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "generation": "gen_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+      }
+    }
+  }
+]

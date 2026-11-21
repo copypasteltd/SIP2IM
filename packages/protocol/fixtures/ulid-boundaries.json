@@ -1,0 +1,26 @@
+[
+  {
+    "id": "dev_00000000000000000000000000",
+    "valid": true
+  },
+  {
+    "id": "dev_7ZZZZZZZZZZZZZZZZZZZZZZZZZ",
+    "valid": true
+  },
+  {
+    "id": "dev_80000000000000000000000000",
+    "valid": false
+  },
+  {
+    "id": "dev_Z0000000000000000000000000",
+    "valid": false
+  },
+  {
+    "id": "dev_01ARZ3NDEKTSV4RRFFQ69G5FAI",
+    "valid": false
+  },
+  {
+    "id": "dev_01arz3ndektsv4rrffq69g5fav",
+    "valid": false
+  }
+]

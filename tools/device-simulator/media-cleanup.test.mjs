@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {openDeviceMedia} from './media.mjs';
+test('closes socket if listener setup fails',()=>{let closed=0;class Socket{on(){throw Error('listener failure')}close(){closed++}}assert.throws(()=>openDeviceMedia({server:'ws://test.invalid',leg:{path:'/ws/media?session=s&leg=l',format:2},token:'x',WebSocketImpl:Socket}));assert.equal(closed,1);});

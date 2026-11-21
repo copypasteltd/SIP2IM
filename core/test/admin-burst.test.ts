@@ -1,0 +1,2 @@
+import {it,expect} from 'vitest';import {openAdminSession} from '../src/ws-admin/session.js';
+it('queues ping while authentication is pending',async()=>{let release!:()=>void;const wait=new Promise<void>(r=>release=r);const sent:string[]=[];const s=openAdminSession({send:v=>sent.push(v),close:()=>{}},async()=>{await wait;return 'admin';});const a=s.message(JSON.stringify({type:'auth',token:'valid'}));const b=s.message(JSON.stringify({type:'ping'}));release();await Promise.all([a,b]);expect(JSON.parse(sent[0]!)).toEqual({type:'pong'});s.close();});

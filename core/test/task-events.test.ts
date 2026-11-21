@@ -1,0 +1,2 @@
+import {it,expect,vi} from 'vitest';import {publishTaskAfterCommit} from '../src/sms/task-events.js';
+it('publishes the committed task representation',async()=>{const order:string[]=[];const read=vi.fn(async()=>{order.push('read');return {smsMessageId:'sms',task:{state:'sent'}}});const publish=vi.fn(async()=>{order.push('publish')});await publishTaskAfterCommit('task',read,publish);expect(order).toEqual(['read','publish']);expect(publish).toHaveBeenCalledWith('sms.task.updated',{smsMessageId:'sms',task:{state:'sent'}});});

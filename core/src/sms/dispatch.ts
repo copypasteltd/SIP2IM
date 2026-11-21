@@ -1,0 +1,280 @@
+import { SimRateLimiter } from './state.js';
+
+export interface QueuedSms {
+  id: string;
+  simId: string;
+  deviceId: string;
+  createdAt: number;
+  expired?: boolean;
+  /** This is the last row of a bounded SIM page with more work behind it. */
+  moreForSim?: boolean;
+}
+export type SmsCommandAck = { ok: boolean; error: string | null };
+type Rate = number | null;
+
+interface CommonDispatchPorts {
+  queued(deviceId: string): Promise<QueuedSms[]>;
+  canCommand(deviceId: string): Promise<boolean>;
+  simState(simId: string, deviceId: string): Promise<'ready' | 'unknown' | 'unavailable'>;
+  /** Optional legacy lookup. Managed Core pushes confirmed changes with setRate(). */
+  currentRate?(): Promise<Rate>;
+}
+
+/** Legacy in-memory dispatcher ports, retained for isolated callers and fakes. */
+export interface SmsDispatchPorts extends CommonDispatchPorts {
+  mark(id: string, from: 'queued' | 'dispatched', to: 'dispatched' | 'accepted' | 'failed' | 'unknown', error: string | null, task?: QueuedSms): Promise<boolean>;
+  send(task: QueuedSms): Promise<SmsCommandAck>;
+  prepare?: never;
+}
+
+export interface PreparedSmsDispatch {
+  claim(): Promise<boolean>;
+  send(): Promise<SmsCommandAck>;
+  acknowledge(ack: SmsCommandAck): Promise<void>;
+  markUnknown(): Promise<void>;
+}
+
+export interface DurableSmsDispatchPorts extends CommonDispatchPorts {
+  mark(id: string, from: 'queued', to: 'failed', error: string | null, task?: QueuedSms): Promise<boolean>;
+  prepare(task: QueuedSms): PreparedSmsDispatch | null;
+  send?: never;
+}
+
+/** Each SIM visits once per round; oldest tasks still win within their own SIM. */
+function* fairOrder(tasks: QueuedSms[]): Iterable<QueuedSms> {
+  const sims = new Map<string, QueuedSms[]>();
+  for (const task of tasks.slice().sort((a, b) => a.createdAt - b.createdAt)) {
+    const sim = sims.get(task.simId);
+    if (sim) sim.push(task);
+    else sims.set(task.simId, [task]);
+  }
+  let next = [...sims.values()];
+  for (let index = 0; next.length; index++) {
+    const current = next;
+    next = [];
+    for (const tasks of current) {
+      yield tasks[index]!;
+      if (index + 1 < tasks.length) next.push(tasks);
+    }
+  }
+}
+
+export class SmsDispatcher {
+  private readonly running = new Set<string>();
+  private readonly dirty = new Set<string>();
+  private readonly rates = new Map<string, Rate>();
+  private globalRate?: { value: Rate | undefined };
+  private pauseVersion = 0;
+  private readonly wakeups = new Map<string, {timer: ReturnType<typeof setTimeout>; deadline: number}>();
+  private readonly wakeVersions = new Map<string, object>();
+  private readonly active = new Set<Promise<void>>();
+  private readonly sends = new Set<Promise<unknown>>();
+  private readonly settlements = new Map<string, () => Promise<void>>();
+  private stopped = false;
+  private stopping?: Promise<void>;
+
+  constructor(private readonly ports: SmsDispatchPorts | DurableSmsDispatchPorts, private readonly limiter: SimRateLimiter, private readonly now: () => number = Date.now) {}
+
+  /** undefined forbids transmission; unlike null, it is not an unlimited rate. */
+  setRate(rate: Rate | undefined): void {
+    if (this.stopped || (this.globalRate && this.globalRate.value === rate)) return;
+    if (rate !== undefined) this.limiter.setGlobalRate(rate);
+    else this.pauseVersion++;
+    this.globalRate = { value: rate };
+    for (const id of [...this.wakeups.keys()]) {
+      this.cancelWakeup(id);
+      if (rate !== undefined || this.settlements.has(id)) this.schedule(id, rate ?? null, 1);
+    }
+  }
+
+  private get paused(): boolean {
+    return this.globalRate !== undefined && this.globalRate.value === undefined;
+  }
+
+  // Admission closes synchronously. Drain work, including underlying sends
+  // whose acknowledgement timeout has already elapsed.
+  stop(): Promise<void> {
+    if (this.stopping) return this.stopping;
+    this.stopped = true;
+    for (const {timer} of this.wakeups.values()) clearTimeout(timer);
+    this.wakeups.clear();
+    this.stopping = (async () => {
+      await Promise.allSettled([...this.active]);
+      await Promise.allSettled([...this.sends]);
+    })();
+    return this.stopping;
+  }
+
+  private cancelWakeup(deviceId: string): void {
+    const wakeup = this.wakeups.get(deviceId);
+    if (wakeup) clearTimeout(wakeup.timer);
+    this.wakeups.delete(deviceId);
+  }
+
+  private schedule(deviceId: string, rate: Rate, wait: number): void {
+    if (this.stopped || (this.paused && !this.settlements.has(deviceId))) return;
+    // Node clamps out-of-range delays to 1ms, which otherwise causes a hot loop.
+    const delay = Math.min(2_147_483_647, Math.max(1, wait));
+    const deadline = this.now() + delay;
+    const existing = this.wakeups.get(deviceId);
+    if (existing && existing.deadline <= deadline) return;
+    this.cancelWakeup(deviceId);
+    const timer = setTimeout(() => {
+      if (this.wakeups.get(deviceId)?.timer !== timer) return;
+      this.wakeups.delete(deviceId);
+      const version = {};
+      this.wakeVersions.set(deviceId, version);
+      // Register before invoking a port, which may synchronously call stop().
+      const work = Promise.resolve().then(async () => {
+        try {
+          if (this.stopped || this.wakeVersions.get(deviceId) !== version) return;
+          const current = this.globalRate ? this.globalRate.value ?? null
+            : this.ports.currentRate ? await this.ports.currentRate() : rate;
+          if (!this.stopped && this.wakeVersions.get(deviceId) === version) {
+            await this.flush(deviceId, current);
+          }
+        } catch {
+          // flush retries its own failure; only a current lookup failure needs this retry.
+          if (this.wakeVersions.get(deviceId) === version) this.schedule(deviceId, rate, 1000);
+        } finally {
+          if (this.wakeVersions.get(deviceId) === version) this.wakeVersions.delete(deviceId);
+        }
+      });
+      this.active.add(work);
+      void work.then(() => this.active.delete(work), () => this.active.delete(work));
+    }, delay);
+    this.wakeups.set(deviceId, {timer, deadline});
+  }
+
+  flush(deviceId: string, rate: Rate): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    this.wakeVersions.delete(deviceId);
+    this.rates.set(deviceId, rate);
+    if (this.running.has(deviceId)) { this.dirty.add(deviceId); return Promise.resolve(); }
+    this.running.add(deviceId);
+    const work = Promise.resolve().then(() => this.run(deviceId, rate));
+    this.active.add(work);
+    void work.then(() => this.active.delete(work), () => this.active.delete(work));
+    return work;
+  }
+
+  private rateFor(deviceId: string, fallback: Rate): Rate {
+    if (this.globalRate) return this.globalRate.value ?? null;
+    return this.rates.has(deviceId) ? this.rates.get(deviceId)! : fallback;
+  }
+
+  private async waitForAck(send: () => Promise<SmsCommandAck>): Promise<SmsCommandAck> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const sent = send();
+      this.sends.add(sent);
+      void sent.then(() => this.sends.delete(sent), () => this.sends.delete(sent));
+      const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 10_000); });
+      return await Promise.race([sent, deadline]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async settle(deviceId: string): Promise<void> {
+    const work = this.settlements.get(deviceId);
+    if (!work) return;
+    await work();
+    this.settlements.delete(deviceId);
+  }
+
+  private async run(deviceId: string, fallback: Rate): Promise<void> {
+    try {
+      // Coalesce a direct wake while busy, but yield if wakes keep arriving.
+      for (let pass = 0; pass < 2 && !this.stopped; pass++) {
+        this.dirty.delete(deviceId);
+        // Recover persistence, including a claim that may have committed
+        // despite throwing, before admitting queued work. Never send in recovery.
+        await this.settle(deviceId);
+        if (this.stopped || this.paused) break;
+        const tasks = await this.ports.queued(deviceId);
+        this.cancelWakeup(deviceId);
+        let more = false;
+        const blocked = new Set<string>();
+        for (const task of fairOrder(tasks)) {
+          if (this.stopped || this.paused) break;
+          if (blocked.has(task.simId)) continue;
+          if (task.expired) {
+            if (await this.ports.mark(task.id, 'queued', 'failed', 'DEVICE_OFFLINE')) more ||= !!task.moreForSim;
+            else blocked.add(task.simId);
+            continue;
+          }
+          if (!await this.ports.canCommand(deviceId) || this.stopped || this.paused) break;
+          const simState = await this.ports.simState(task.simId, deviceId);
+          if (this.stopped || this.paused) break;
+          if (simState === 'unknown') { blocked.add(task.simId); continue; }
+          if (simState === 'unavailable') {
+            if (await this.ports.mark(task.id, 'queued', 'failed', 'SIM_NOT_READY', task)) more ||= !!task.moreForSim;
+            else blocked.add(task.simId);
+            continue;
+          }
+          const rate = this.rateFor(deviceId, fallback);
+          if (!this.limiter.take(task.simId, rate)) {
+            blocked.add(task.simId);
+            if (rate !== null) this.schedule(deviceId, rate, this.limiter.waitMs(task.simId, rate));
+            continue;
+          }
+          const processed = this.ports.prepare
+            ? await this.durableSend(deviceId, this.ports.prepare(task))
+            : await this.legacySend(this.ports, task);
+          if (processed) more ||= !!task.moreForSim;
+          else {
+            this.limiter.refund(task.simId, rate);
+            blocked.add(task.simId);
+          }
+        }
+        if (more) this.schedule(deviceId, this.rateFor(deviceId, fallback), 1);
+        if (!this.dirty.has(deviceId)) break;
+      }
+      if (this.dirty.has(deviceId)) this.schedule(deviceId, this.rateFor(deviceId, fallback), 1);
+    } catch (error) {
+      this.schedule(deviceId, this.rateFor(deviceId, fallback), 1000);
+      throw error;
+    } finally {
+      this.running.delete(deviceId);
+      this.dirty.delete(deviceId);
+      this.rates.delete(deviceId);
+    }
+  }
+
+  private async durableSend(deviceId: string, attempt: PreparedSmsDispatch | null): Promise<boolean> {
+    if (!attempt || this.stopped || this.paused) return false;
+    const pauseVersion = this.pauseVersion;
+    try {
+      if (!await attempt.claim()) return false;
+    } catch (error) {
+      this.settlements.set(deviceId, () => attempt.markUnknown());
+      throw error;
+    }
+    let ack: SmsCommandAck | undefined;
+    if (!this.stopped && !this.paused && this.pauseVersion === pauseVersion) {
+      // Confirmed changes affect new reservations. A pause fences this claim
+      // even if the new setting is successfully reloaded before it returns.
+      try { ack = await this.waitForAck(() => attempt.send()); }
+      catch { /* A transport error cannot establish what the device did. */ }
+    }
+    const observed = ack;
+    this.settlements.set(deviceId, observed ? () => attempt.acknowledge(observed) : () => attempt.markUnknown());
+    await this.settle(deviceId);
+    return true;
+  }
+
+  private async legacySend(ports: SmsDispatchPorts, task: QueuedSms): Promise<boolean> {
+    const pauseVersion = this.pauseVersion;
+    if (!await ports.mark(task.id, 'queued', 'dispatched', null, task)) return false;
+    let ack: SmsCommandAck | undefined;
+    if (!this.stopped && !this.paused && this.pauseVersion === pauseVersion) {
+      try { ack = await this.waitForAck(() => ports.send(task)); }
+      catch { /* As in the durable path, do not retransmit. */ }
+    }
+    // A failed ACK write must not be replaced with a generic unknown write.
+    if (ack) await ports.mark(task.id, 'dispatched', ack.ok ? 'accepted' : 'failed', ack.error);
+    else await ports.mark(task.id, 'dispatched', 'unknown', null);
+    return true;
+  }
+}

@@ -1,0 +1,22 @@
+package io.voipgw.gateway.core
+
+import android.content.ContentValues
+import android.database.sqlite.SQLiteDatabase
+
+/** All operations must run inside the caller's gateway.db write transaction. */
+object CommandNamespace {
+    fun isReady(db: SQLiteDatabase): Boolean = db.rawQuery("SELECT state FROM command_migration WHERE id = 1", null).use { it.moveToFirst() && it.getString(0) == "fresh" }
+    fun requireReady(db: SQLiteDatabase) {
+        check(isReady(db)) { "Command migration is not verified; command execution is disabled" }
+    }
+    fun reserve(db: SQLiteDatabase, id: String, type: String, payload: String, error: String): Pair<String, Boolean> {
+        val inserted = db.insertWithOnConflict("command_namespace", null, ContentValues().apply {
+            put("id", id); put("command_type", type); put("payload", payload); put("error", error); put("ambiguous", 0)
+        }, SQLiteDatabase.CONFLICT_IGNORE) != -1L
+        val result = db.query("command_namespace", arrayOf("command_type", "payload", "error", "ambiguous"), "id = ?", arrayOf(id), null, null, null).use {
+            check(it.moveToFirst())
+            if (it.getInt(3) != 0 || it.getString(0) != type || it.getString(1) != payload || it.isNull(2)) "CONFLICT" else it.getString(2)
+        }
+        return result to inserted
+    }
+}
