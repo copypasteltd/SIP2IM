@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · 告警分页与确认审计
+
+- 告警页分批读取，支持上一页、下一页和返回最新；自动刷新只请求当前页。游标保留数据库微秒时间并绑定筛选状态。旧客户端未传分页参数时行为不变。[告警接口](core/src/http/operations.ts)
+- 确认仅修改开放告警。写入前复核管理员会话，状态和审计一并提交；响应不确定时读回，不自动补发确认。[告警仓库](core/src/alerts/admin-repo.ts)
+- 合成演示增加告警历史第二页，回到最新后确认渠道告警并核对操作日志。[历史截图](docs/media/alerts-history.png) · [本轮验证](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 设备配置对账与权限证据
 
 - Core 按数据库已提交设置对账设备的心跳周期和语言。丢失 ACK 后只重试当前设置；旧连接的回执不结算新连接。限量轮转和关停排空不影响短信与通话的禁止自动重试规则。[配置任务](core/src/settings/device-config.ts)
 - 仪表盘和短信权限告警采用同一套时效与判定规则。冲突观测不计入短信就绪。软件模拟器按握手和配置命令更新当前连接的心跳周期。[权限证据](core/src/devices/sms-permissions.ts) · [模拟器](tools/device-simulator/README.md)
-- 本轮未改变录屏所展示的操作。保留此前合成实录，并复验演示接口。[本轮验证](docs/VERIFICATION.md)
+- 本轮未改变录屏所展示的操作。保留此前合成实录，并复验演示接口。[本轮验证](https://github.com/copypasteltd/SIP2IM/blob/64940ec7edab5d06387571e0ff836ad68009a2b2/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 运维告警闭环
 
@@ -36,11 +42,17 @@
 
 ## English
 
+### 2026-11-21 · Alert history and acknowledgement audit
+
+- Alerts support Previous, Next and Latest. Polling fetches only the displayed page. The cursor preserves database microseconds and is bound to the state filter. Existing unpaged requests behave as before. [Alert API](core/src/http/operations.ts)
+- Acknowledgement only changes open alerts. Core rechecks the administrator session and commits the transition and audit together. An uncertain response requires readback, not an automatic retry. [Alert repository](core/src/alerts/admin-repo.ts)
+- The synthetic walkthrough opens the second history page, then returns to the latest page to acknowledge a channel alert and confirm its audit entry. [History screenshot](docs/media/alerts-history.png) · [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Device configuration and permission evidence
 
 - Core reconciles the heartbeat interval and locale against committed settings. After a missing ACK it retries only the current configuration; previous connections cannot settle a new attachment. Bounded rotation and shutdown drain leave the no-automatic-retry policy for SMS and calls unchanged. [Configuration reconciler](core/src/settings/device-config.ts)
 - Dashboard and SMS permission alerts now use the same evidence and freshness rules. Contradictory grants no longer count as ready. The simulator applies hello and configuration changes to its current heartbeat schedule. [Permission evidence](core/src/devices/sms-permissions.ts) · [Simulator](tools/device-simulator/README.md)
-- The demonstrated Web flows were unchanged. The existing synthetic recording remains applicable and its fixture was retested. [Verification](docs/VERIFICATION.md)
+- The demonstrated Web flows were unchanged. The existing synthetic recording remains applicable and its fixture was retested. [Verification](https://github.com/copypasteltd/SIP2IM/blob/64940ec7edab5d06387571e0ff836ad68009a2b2/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Operational alert lifecycle
 

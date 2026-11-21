@@ -197,7 +197,7 @@ const settings = new SettingsService({
   publish: value => hub.publish('settings.updated', value),
 }, effect => app.log.error({ effect }, 'Settings effect failed'));
 lifecycle.defer(() => settings.drain(), { critical: true });
-registerAudit(app,item=>new AuditRepository(pool).record(item),()=>{process.stderr.write('audit write failed\n');});registerSettingsPut(app,settings,t=>auth.authenticate(t));registerChannelRoutes(app,settings,channels,t=>auth.authenticate(t));registerOperations(app,pool,t=>auth.authenticate(t));registerDashboardRoute(app,new DashboardService(new DashboardRepository(pool)),t=>auth.authenticate(t));const smsRepo=new SmsRepository(pool);
+registerAudit(app,item=>new AuditRepository(pool).record(item),()=>{process.stderr.write('audit write failed\n');});registerSettingsPut(app,settings,t=>auth.authenticate(t));registerChannelRoutes(app,settings,channels,t=>auth.authenticate(t));registerOperations(app,pool,t=>auth.authenticate(t),assertAdmission);registerDashboardRoute(app,new DashboardService(new DashboardRepository(pool)),t=>auth.authenticate(t));const smsRepo=new SmsRepository(pool);
 const smsQueue=new SmsQueueRepository(pool);
 const maintenanceInvalidation=new SmsMaintenanceInvalidation(pool,(type,data)=>hub.publish(type,data));
 transportLifecycle.defer(()=>maintenanceInvalidation.stop(),{critical:true});

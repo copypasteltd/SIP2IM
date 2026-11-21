@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import { DEFAULT_PORT, HOST, MAX_BODY, makeDemoApi } from './api.mjs';
-import { bindingRecordId, fixtureId } from './fixtures.mjs';
+import { bindingRecordId, fixtureId, seedDemo } from './fixtures.mjs';
 import { wireAdminSocket } from './realtime.mjs';
 import { makeDemoServer, parsePort } from './server.mjs';
 
@@ -13,6 +13,7 @@ const authority = HOST + ':' + DEFAULT_PORT;
 const origin = 'http://' + authority;
 const loginInput = { username: 'demo', password: 'demo' };
 const codes = '/api/devices/binding-codes';
+const alerts = '/api/alerts';
 const readDistIndex = () => readFile(new URL('../../web/dist/index.html', import.meta.url), 'utf8');
 
 // Dispatch the real HTTP request handler with local streams. No bind, connection, or browser.
@@ -132,20 +133,130 @@ test('exposes public health, guards admin data, and revokes demo sessions', asyn
   error(await get('/api/dashboard'), 401, 'UNAUTHORIZED');
 });
 
-test('acknowledges a synthetic channel alert without claiming recovery', async t => {
+test('lists legacy alert history and bounds opt-in pages in descending firstAt and ID order', async t => {
+  const { request, signedIn, server } = await harness(t);
+  assert.equal(server.listening, false);
+  const token = await signedIn();
+  const list = async (params = {}) => {
+    const response = await request(alerts + '?' + new URLSearchParams(params), { token });
+    data(response);
+    return response.json();
+  };
+  const all = await list();
+  const history = all.data.slice(2);
+  assert.deepEqual(all, { data: all.data, nextCursor: null });
+  assert.equal(history.length, 60);
+  assert.ok(history.every(row => row.state === 'resolved' && row.resolvedAt !== null));
+  const open = all.data.slice(0, 2);
+  assert.deepEqual(open.map(row => [row.type, row.state]), [['channel_down', 'open'], ['device_offline', 'open']]);
+  assert.deepEqual(await list({ state: 'resolved' }), { data: history, nextCursor: null });
+  assert.deepEqual(await list({ state: 'open', limit: '5' }), { data: open, nextCursor: null });
+  assert.deepEqual(await list({ state: 'acked', limit: '50' }), { data: [], nextCursor: null });
+  assert.deepEqual(history.slice(0, 2).map(row => row.id), [fixtureId('alr', 4), fixtureId('alr', 3)]);
+  assert.equal(history[0].firstAt, history[1].firstAt);
+  for (let i = 1; i < all.data.length; i++) {
+    const before = all.data[i - 1];
+    const after = all.data[i];
+    assert.ok(before.firstAt > after.firstAt || (before.firstAt === after.firstAt && before.id > after.id));
+  }
+
+  for (const size of [1, 7, 50, 100]) {
+    const rows = [];
+    const pages = Math.ceil(all.data.length / size);
+    let cursor;
+    for (let i = 0; i < pages; i++) {
+      const page = await list({ limit: String(size), ...(cursor ? { cursor } : {}) });
+      assert.equal(page.data.length, Math.min(size, all.data.length - rows.length));
+      rows.push(...page.data);
+      cursor = page.nextCursor;
+      if (i < pages - 1) assert.ok(typeof cursor === 'string' && cursor.length > 0);
+      else assert.equal(cursor, null);
+    }
+    assert.deepEqual(rows, all.data);
+  }
+  const first = await list({ state: 'resolved', limit: '1' });
+  const middle = await list({ state: 'resolved', cursor: first.nextCursor });
+  assert.deepEqual(middle.data, history.slice(1, 51));
+  assert.ok(middle.nextCursor);
+  assert.deepEqual(await list({ state: 'resolved', cursor: middle.nextCursor }), { data: history.slice(51), nextCursor: null });
+});
+
+test('rejects invalid alert page inputs and cursors from a different state', async t => {
   const { request, signedIn } = await harness(t);
   const token = await signedIn();
+  error(await request(alerts + '?limit=1'), 401, 'UNAUTHORIZED');
+  const get = path => request(alerts + '?' + path, { token });
+  const first = await get('state=resolved&limit=1');
+  data(first);
+  const cursor = encodeURIComponent(first.json().nextCursor);
+  for (const query of [
+    'limit=', 'limit=0', 'limit=101', 'limit=-1', 'limit=1.5', 'limit=abc', 'limit=1&limit=2',
+    'state=bogus', 'state=', 'state=resolved&state=resolved', 'unknown=1',
+    'cursor=', 'cursor=d1', 'cursor=' + 'a'.repeat(513), 'cursor=' + cursor,
+    'state=open&cursor=' + cursor, 'state=resolved&cursor=' + cursor + '&cursor=' + cursor,
+    'state=resolved&cursor=' + cursor + '%3D',
+  ]) error(await get(query), 400, 'BAD_REQUEST');
+});
+
+test('a Demo alert cursor excludes newer inserts including a higher ID at the cursor timestamp', async () => {
+  const seed = seedDemo(fixtureTime);
+  const oldest = seed.alerts.at(-1);
+  for (let i = 1; i <= 45; i++) {
+    seed.alerts.push({ ...oldest, id: fixtureId('alr', 100 + i), firstAt: oldest.firstAt - i });
+  }
+  const api = makeDemoApi({ now: () => fixtureTime, seed: () => seed });
+  const handle = (method, path, headers = {}, body = () => undefined) => api.handle({ method, url: new URL(path, origin), headers, body });
+  const session = (await handle('POST', '/api/auth/login', {}, () => loginInput)).data;
+  const get = query => handle('GET', alerts + '?' + new URLSearchParams({ state: 'resolved', ...query }), { authorization: 'Bearer ' + session.token });
+  const legacy = await get({});
+  const first = await get({ limit: '1' });
+  const [boundary] = first.data;
+  assert.equal(boundary.firstAt, legacy.data[1].firstAt);
+  const newer = { ...boundary, id: fixtureId('alr', 1000), firstAt: boundary.firstAt + 1 };
+  const sameTime = { ...boundary, id: fixtureId('alr', 1001) };
+  seed.alerts.unshift(sameTime, newer);
+  assert.deepEqual((await get({ limit: '3' })).data, [newer, sameTime, boundary]);
+  const page = await get({ limit: '100', cursor: first.nextCursor });
+  assert.equal(page.data.length, 100);
+  assert.deepEqual(page.data, legacy.data.slice(1, 101));
+  assert.ok(page.nextCursor);
+  assert.deepEqual(await get({ cursor: page.nextCursor }), { data: legacy.data.slice(101), nextCursor: null });
+});
+
+test('acknowledges an open alert once and records one fixture-only audit entry', async t => {
+  let time = fixtureTime;
+  const { request, signedIn } = await harness(t, () => time);
+  const token = await signedIn();
   const get = path => request(path, { token });
-  const active = data(await get('/api/alerts?state=open'));
-  const target = active.find(alert => alert.type === 'channel_down');
-  assert.ok(target);
-  const path = '/api/alerts/' + target.id + '/ack';
-  const post = () => request(path, { token, method: 'POST' });
-  const acked = data(await post());
+  const active = data(await get(alerts + '?state=open'));
+  assert.equal(active.length, 2);
+  const [target, stillOpen] = active;
+  assert.equal(target.type, 'channel_down');
+  const first = await get(alerts + '?state=open&limit=1');
+  assert.deepEqual(data(first), [target]);
+  const cursor = encodeURIComponent(first.json().nextCursor);
+  const auditPath = '/api/audit-logs';
+  const auditBefore = data(await get(auditPath));
+  const post = (id, options) => request(alerts + '/' + id + '/ack', { token, method: 'POST', ...options });
+  error(await post(target.id, { token: undefined }), 401, 'UNAUTHORIZED');
+  time++;
+  const result = await post(target.id, { body: { actor: 'ignored-fixture-actor', detail: 'ignored-fixture-detail' } });
+  const acked = data(result);
   assert.deepEqual(acked, { ...target, state: 'acked' });
-  assert.deepEqual(data(await get('/api/alerts?state=acked')), [acked]);
-  assert.equal(data(await get('/api/alerts?state=open')).length, active.length - 1);
-  error(await post(), 404, 'NOT_FOUND');
+  assert.deepEqual(result.json(), { data: acked });
+  assert.deepEqual(data(await get(alerts + '?state=acked')), [acked]);
+  assert.deepEqual(data(await get(alerts + '?state=open')), [stillOpen]);
+  const rest = await get(alerts + '?state=open&cursor=' + cursor);
+  assert.deepEqual(data(rest), [stillOpen]);
+  assert.equal(rest.json().nextCursor, null);
+  assert.deepEqual(data(await get('/api/dashboard')).alerts, { open: 1, critical: 0 });
+  error(await post(target.id), 404, 'NOT_FOUND');
+  error(await post(fixtureId('alr', 3)), 404, 'NOT_FOUND');
+  error(await post('missing'), 404, 'NOT_FOUND');
+  assert.deepEqual(data(await get(auditPath)), [{
+    id: fixtureId('aud', 2), action: 'alert.ack', targetType: 'alert', targetId: target.id,
+    detail: { synthetic: true, actor: 'demo' }, ts: time,
+  }, ...auditBefore]);
 });
 
 test('issues and cancels v2 admin records without exposing codes in inventory', async t => {

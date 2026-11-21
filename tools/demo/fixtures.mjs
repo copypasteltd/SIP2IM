@@ -85,6 +85,18 @@ export function seedDemo(at) {
     };
   });
 
+  const archivedTypes = ['shizuku_stopped', 'sms_permission_missing', 'protocol_mismatch'];
+  const archivedAlerts = Array.from({ length: 60 }, (_, index) => {
+    // Give pairs the same firstAt so the demo also exercises the ID tie-breaker.
+    const firstAt = at - (24 * 60 + 30 * Math.floor(index / 2)) * minute;
+    const lastAt = firstAt + minute;
+    return {
+      id: fixtureId('alr', index + 3), type: archivedTypes[index % archivedTypes.length],
+      subjectType: 'device', subjectId: devices[index % devices.length].id, severity: 'warning', state: 'resolved',
+      firstAt, lastAt, detail: { synthetic: true }, pushedAt: null, resolvedAt: lastAt,
+    };
+  });
+
   return {
     devices, messages, calls,
     channels: [
@@ -109,6 +121,7 @@ export function seedDemo(at) {
     alerts: [
       { id: fixtureId('alr', 2), type: 'channel_down', subjectType: 'channel', subjectId: 'telegram', severity: 'warning', state: 'open', firstAt: at - 16 * minute, lastAt: at - 16 * minute, detail: {}, pushedAt: null, resolvedAt: null },
       { id: fixtureId('alr', 1), type: 'device_offline', subjectType: 'device', subjectId: devices[2].id, severity: 'warning', state: 'open', firstAt: at - 182 * minute, lastAt: at - 182 * minute, detail: {}, pushedAt: null, resolvedAt: null },
+      ...archivedAlerts,
     ],
     commands: [
       { id: fixtureId('cmd', 1), platform: 'qq', kind: 'sms', state: 'completed', fromSimId: devices[0].sims[0].id,

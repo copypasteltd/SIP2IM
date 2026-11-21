@@ -208,7 +208,7 @@ notify.incoming、notify.missed、notify.busy_rejected、notify.sms_forward、no
 | protocol_mismatch | device | 有效设备及凭据的可识别不兼容握手，`4005` 不延迟 | 当前兼容连接发出 `hello.ok` |
 | shizuku_autostart_failed | device | 经授权映射的回环上报累计三次合格失败，短间隔抑制；观测过期重新计数 | `started` 或 `already_running` |
 
-同一 `(type, subject_id)` 最多保留一条开放告警。可恢复规则把已确认记录保留在同一故障内，直到收到有效恢复；通话告警确认后不重开。确认不会改变业务状态。Core 提交后向管理连接尽力通知变化，Web 每 30 秒读回。原设计中的配对用户推送与定期重试仍待接入。
+同一 `(type, subject_id)` 最多保留一条开放告警。可恢复规则把已确认记录保留在同一故障内，直到收到有效恢复；通话告警确认后不重开。确认不会改变业务状态。Core 提交后向管理连接尽力通知变化，Web 每 30 秒仅读回当前页。按数据库原始时间和 ID 分页，筛选变化回到最新页。确认状态和审计在同一事务，未知响应单独读回。原设计中的配对用户推送与定期重试仍待接入。
 
 ### 3.13 settings
 

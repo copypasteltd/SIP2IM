@@ -9,6 +9,10 @@ const WRITE_WINDOW = 60_000;
 const WRITE_LIMIT = 120;
 const BINDING_LIMIT = 32;
 const SMS_LIMIT = 48;
+const ALERT_PAGE_LIMIT = 100;
+const ALERT_DEFAULT_LIMIT = 50;
+const alertStates = ['open', 'acked', 'resolved'];
+const alertCursorPrefix = 'demo-alert-v1.';
 const authPrefix = 'Bearer ';
 const bindingPath = '/api/devices/binding-codes';
 const methodsWithWrites = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -67,6 +71,44 @@ function queryKeys(query, allowed = []) {
   return query;
 }
 
+function newestAlertFirst(a, b) {
+  return b.firstAt - a.firstAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+}
+
+function decodeAlertCursor(cursor, filter) {
+  // The fixtures use their own cursor format. Core cursors are a separate contract.
+  if (!cursor.startsWith(alertCursorPrefix)) bad();
+  const encoded = cursor.slice(alertCursorPrefix.length);
+  const bytes = Buffer.from(encoded, 'base64url');
+  if (encoded !== bytes.toString('base64url')) bad();
+  let key;
+  try { key = JSON.parse(bytes.toString('utf8')); }
+  catch { bad(); }
+  if (!Array.isArray(key) || key.length !== 3 || key[0] !== filter ||
+      !Number.isSafeInteger(key[1]) || typeof key[2] !== 'string' || !/^alr_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(key[2])) bad();
+  return { firstAt: key[1], id: key[2] };
+}
+
+function alertPage(alerts, query) {
+  queryKeys(query, ['state', 'limit', 'cursor']);
+  const filter = query.get('state');
+  if (filter !== null && !alertStates.includes(filter)) bad();
+  const limit = query.get('limit');
+  const cursor = query.get('cursor');
+  if (limit !== null && (!numbered(limit, ALERT_PAGE_LIMIT) || Number(limit) < 1)) bad();
+  const boundary = cursor === null ? null : decodeAlertCursor(cursor, filter);
+  const rows = alerts.filter(alert => matchIf(filter, alert.state) && (!boundary || newestAlertFirst(alert, boundary) > 0))
+    .sort(newestAlertFirst);
+  if (limit === null && cursor === null) return { data: rows, nextCursor: null };
+  const size = limit === null ? ALERT_DEFAULT_LIMIT : Number(limit);
+  const data = rows.slice(0, size);
+  const last = data.at(-1);
+  const nextCursor = rows.length > size
+    ? alertCursorPrefix + Buffer.from(JSON.stringify([filter, last.firstAt, last.id])).toString('base64url')
+    : null;
+  return { data, nextCursor };
+}
+
 function parseIdempotency(headers) {
   const key = headers['idempotency-key'];
   if (typeof key !== 'string' || !key.trim()) fail(400, 'IDEMPOTENCY_KEY_REQUIRED');
@@ -74,8 +116,8 @@ function parseIdempotency(headers) {
   return key;
 }
 
-export function makeDemoApi({ now = Date.now, port = DEFAULT_PORT, onEvent = () => {} } = {}) {
-  const state = seedDemo(now());
+export function makeDemoApi({ now = Date.now, port = DEFAULT_PORT, onEvent = () => {}, seed = seedDemo } = {}) {
+  const state = seed(now());
   const sessions = new Map();
   const sent = new Map();
   let bindingOrdinal = state.bindings.length;
@@ -358,16 +400,15 @@ export function makeDemoApi({ now = Date.now, port = DEFAULT_PORT, onEvent = () 
       return page(state.commands.filter(row => matchIf(query.get('platform'), row.platform) && matchIf(query.get('kind'), row.kind)), query);
     }
     if (method === 'GET' && path === '/api/audit-logs') return page(state.audit, queryKeys(query, ['limit', 'cursor']));
-    if (method === 'GET' && path === '/api/alerts') {
-      queryKeys(query, ['state']);
-      const filter = query.get('state');
-      if (filter !== null && !['open', 'acked', 'resolved'].includes(filter)) bad();
-      return data(state.alerts.filter(alert => matchIf(filter, alert.state)));
-    }
+    if (method === 'GET' && path === '/api/alerts') return alertPage(state.alerts, query);
     if (method === 'POST') {
       const id = /^\/api\/alerts\/([^/]+)\/ack$/.exec(path)?.[1];
       const alert = state.alerts.find(item => item.id === id);
       if (alert?.state === 'open') {
+        state.audit.unshift({
+          id: fixtureId('aud', state.audit.length + 1), action: 'alert.ack',
+          targetType: 'alert', targetId: alert.id, detail: { synthetic: true, actor: 'demo' }, ts: now(),
+        });
         alert.state = 'acked';
         return data(alert);
       }

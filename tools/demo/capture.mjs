@@ -4,11 +4,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fixtureId } from './fixtures.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const origin = 'http://127.0.0.1:41730';
 const width = 1440, height = 900, fps = 10;
-const names = ['dashboard.png', 'alerts.png', 'bindings.png', 'sms.png', 'walkthrough.mp4', 'walkthrough.gif'];
+const names = ['dashboard.png', 'alerts-history.png', 'alerts.png', 'bindings.png', 'sms.png', 'walkthrough.mp4', 'walkthrough.gif'];
 const caption = 'Synthetic reply: picked up at the demo desk.';
 const [chrome, outputArg = 'docs/media'] = process.argv.slice(2);
 const output = resolve(root, outputArg);
@@ -196,11 +197,31 @@ try {
 
   await click('nav a[href="/alerts"]', 'Alerts');
   await locationIs('/alerts');
-  await wait(() => {
+  const waitAlertPage = latest => wait(showLatest => {
+    const pageStatus = document.querySelector('main [role="group"] [role="status"]');
+    if (pageStatus?.textContent?.trim() !== (showLatest ? 'Page 1' : 'Page 2')) return false;
     const cards = [...document.querySelectorAll('main article.panel')];
-    return cards[0]?.querySelector('h2')?.textContent?.trim() === 'Platform channel is unavailable' &&
-      cards.some(card => card.querySelector('h2')?.textContent?.trim() === 'Device has gone offline');
-  }, 'localized channel and device fixture alerts');
+    const controls = [...document.querySelectorAll('main [role="group"] button')];
+    const disabled = name => controls.find(control => control.textContent.trim() === name)?.disabled;
+    if (disabled('Previous') !== showLatest || disabled('Latest') !== showLatest || disabled('Next') !== !showLatest) {
+      return false;
+    }
+    const title = card => card?.querySelector('h2')?.textContent?.trim();
+    if (showLatest) {
+      return cards.length === 50 && title(cards[0]) === 'Platform channel is unavailable' &&
+        cards[0].innerText.includes('State: Open') && title(cards[1]) === 'Device has gone offline';
+    }
+    return cards.length === 12 && cards.every(card => card.innerText.includes('State: Resolved'));
+  }, latest ? 'latest bounded alert page' : 'older resolved alert page', latest);
+  await waitAlertPage(true);
+  await delay(650);
+  await click('main [role="group"] button', 'Next');
+  await waitAlertPage(false);
+  await delay(700);
+  await snapshot('alerts-history.png');
+  await delay(1200);
+  await click('main [role="group"] button', 'Latest');
+  await waitAlertPage(true);
   await delay(650);
   await click('main article.panel:first-of-type button', 'Acknowledge alert');
   await wait(() => {
@@ -210,6 +231,15 @@ try {
   }, 'channel alert acknowledgement readback');
   await snapshot('alerts.png');
   await delay(1400);
+
+  await click('nav a[href="/audit"]', 'Audit log');
+  await locationIs('/audit');
+  await wait(target => {
+    const cards = [...document.querySelectorAll('main article.panel')];
+    const acknowledgements = cards.filter(card => card.querySelector('h2')?.textContent?.trim() === 'alert.ack');
+    return acknowledgements.length === 1 && acknowledgements[0].innerText.includes(target);
+  }, 'single synthetic acknowledgement audit readback', fixtureId('alr', 2));
+  await delay(1100);
 
   await click('nav a[href="/devices"]', 'Devices');
   await locationIs('/devices');
@@ -254,7 +284,7 @@ try {
   for (const name of names) {
     await writeFile(join(output, name), await readFile(join(work, name)), { flag: 'wx' });
   }
-  console.log('Verified synthetic dashboard, alert acknowledgement, binding cancellation and SMS; exported ' + shot + ' actual Chrome frames.');
+  console.log('Verified synthetic dashboard, alert paging, acknowledgement and audit readback, binding cancellation and SMS; exported ' + shot + ' actual Chrome frames.');
 } finally {
   capturing = false;
   await frames?.catch(() => {});

@@ -4,6 +4,7 @@ import {Link,MemoryRouter,Route,Routes} from 'react-router-dom';
 import {afterEach,expect,it,vi} from 'vitest';
 import {RecordsPage} from './records';
 import i18n from '../../i18n';
+import {syncEvent} from '../../realtime/admin-socket';
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 it('reads back a new health alert through polling when realtime delivery is absent',async()=>{
  await i18n.changeLanguage('en');
@@ -24,22 +25,187 @@ it('reads back a new health alert through polling when realtime delivery is abse
  } finally { cleanup();vi.useRealTimers(); }
 });
 
-it('requests alerts with only the supported state filter',async()=>{
- await i18n.changeLanguage('en');
- const fetchMock=vi.fn().mockImplementation((url:string)=>{
-  const parsed=new URL(url,'http://localhost');
-  const keys=[...parsed.searchParams.keys()];
-  const valid=parsed.pathname==='/api/alerts'&&keys.every(key=>key==='state')&&keys.length<=1;
-  return Promise.resolve(new Response(JSON.stringify(valid?{data:[{id:'a',type:'offline',state:parsed.searchParams.get('state')??'open'}],nextCursor:'unexpected'}:{error:{code:'BAD_REQUEST'}}),{status:valid?200:400}));
- });
- vi.stubGlobal('fetch',fetchMock);
- const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
- render(<QueryClientProvider client={client}><RecordsPage kind="alerts"/></QueryClientProvider>);
- await screen.findByText('offline');
- expect(fetchMock.mock.calls.map(call=>call[0])).toEqual(['/api/alerts']);
- expect(screen.queryByRole('button',{name:'Load more'})).not.toBeInTheDocument();
- fireEvent.change(screen.getByRole('combobox'),{target:{value:'acked'}});
- await waitFor(()=>expect(fetchMock.mock.calls.map(call=>call[0])).toEqual(['/api/alerts','/api/alerts?state=acked']));
+const alertsPath = '/api/alerts?limit=50';
+const pageToken = 'opaque +/?=&';
+const pageTwoPath = alertsPath + '&cursor=opaque+%2B%2F%3F%3D%26';
+const pageThreePath = alertsPath + '&cursor=third';
+const alertRows = (title: string, count = 1, state = 'open') => Array.from({ length: count }, (_, i) => ({
+  id: title + i, type: title, subjectId: title + ' fixture ' + i, state, severity: 'warning', lastAt: 1,
+}));
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const alertPage = (title: string, nextCursor: string | null, count = 1, state = 'open') =>
+  json({ data: alertRows(title, count, state), nextCursor });
+const pageButton = (name: 'Previous' | 'Next' | 'Latest') => screen.getByRole('button', { name });
+const setupAlerts = (client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => {
+  render(<QueryClientProvider client={client}><RecordsPage kind="alerts"/></QueryClientProvider>);
+  return client;
+};
+
+it.each([[51, null], [1, '']] as const)('rejects an invalid alert page (%i rows, cursor %s)', async (count, cursor) => {
+  await i18n.changeLanguage('en');
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url !== alertsPath) throw new Error('Unexpected fixture request: ' + url);
+    return alertPage('Malformed alert', cursor, count);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  setupAlerts();
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load data');
+  expect(screen.queryByRole('article')).not.toBeInTheDocument();
+  expect(pageButton('Next')).toBeDisabled();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('uses state-bound opaque cursors, replaces rows, and resets page history with the filter', async () => {
+  await i18n.changeLanguage('en');
+  const acked = alertsPath + '&state=acked';
+  const fetchMock = vi.fn(async (url: string) => {
+    switch (url) {
+      case alertsPath: return alertPage('Newest alert', pageToken, 50);
+      case pageTwoPath: return alertPage('Older alert', 'third', 50);
+      case pageThreePath: return alertPage('Oldest alert', null);
+      case acked: return alertPage('Acknowledged alert', 'acked-only', 50, 'acked');
+      case acked + '&cursor=acked-only': return alertPage('Older acknowledged alert', null, 1, 'acked');
+      default: throw new Error('Unexpected fixture request: ' + url);
+    }
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  setupAlerts();
+  await screen.findByText(/Newest alert fixture 0/);
+  expect(screen.getAllByRole('article')).toHaveLength(50);
+  expect(screen.getByText('Page 1')).toHaveAttribute('role', 'status');
+  expect(pageButton('Previous')).toBeDisabled();
+  expect(pageButton('Latest')).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+
+  fireEvent.click(pageButton('Next'));
+  await screen.findByText('Page 2');
+  expect(screen.getAllByRole('article')).toHaveLength(50);
+  expect(screen.queryByText(/Newest alert fixture 0/)).not.toBeInTheDocument();
+  fireEvent.click(pageButton('Next'));
+  await screen.findByText('Page 3');
+  expect(screen.getAllByRole('article')).toHaveLength(1);
+  expect(pageButton('Next')).toBeDisabled();
+  fireEvent.click(pageButton('Previous'));
+  await screen.findByText('Page 2');
+  expect(screen.queryByText(/Oldest alert fixture 0/)).not.toBeInTheDocument();
+  fireEvent.click(pageButton('Latest'));
+  await screen.findByText('Page 1');
+  await screen.findByText(/Newest alert fixture 0/);
+  expect(pageButton('Previous')).toBeDisabled();
+  fireEvent.click(pageButton('Next'));
+  await screen.findByText('Page 2');
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter' }), { target: { value: 'acked' } });
+  await screen.findByText(/Acknowledged alert fixture 0/);
+  expect(screen.getByText('Page 1')).toBeInTheDocument();
+  expect(screen.queryByText(/Older alert fixture 0/)).not.toBeInTheDocument();
+  expect(pageButton('Previous')).toBeDisabled();
+  expect(pageButton('Latest')).toBeDisabled();
+  fireEvent.click(pageButton('Next'));
+  await screen.findByText(/Older acknowledged alert fixture 0/);
+  expect(screen.getByText('Page 2')).toBeInTheDocument();
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    alertsPath, pageTwoPath, pageThreePath, pageTwoPath, alertsPath, pageTwoPath,
+    acked, acked + '&cursor=acked-only',
+  ]);
+});
+
+it('polls and reconciles only the current alert page, not its discarded predecessors', async () => {
+  await i18n.changeLanguage('en');
+  vi.useFakeTimers();
+  try {
+    let reads = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      switch (url) {
+        case alertsPath: return alertPage('Newest alert', pageToken);
+        case pageTwoPath: return alertPage('Older alert', 'third');
+        case pageThreePath: return alertPage('Current read ' + ++reads, null);
+        default: throw new Error('Unexpected fixture request: ' + url);
+      }
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = setupAlerts();
+    const advance = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+    await advance(25);
+    fireEvent.click(pageButton('Next'));
+    await advance(25);
+    fireEvent.click(pageButton('Next'));
+    await advance(25);
+    expect(screen.getByText('Page 3')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Current read 1' })).toBeInTheDocument();
+    expect(client.getQueryCache().findAll({ queryKey: ['alerts'] })).toHaveLength(1);
+
+    await advance(30_000);
+    expect(screen.getByRole('heading', { name: 'Current read 2' })).toBeInTheDocument();
+    syncEvent(client, 'alert.raised');
+    await advance(25);
+    expect(screen.getByRole('heading', { name: 'Current read 3' })).toBeInTheDocument();
+    expect(screen.queryByText(/Older alert fixture/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      alertsPath, pageTwoPath, pageThreePath, pageThreePath, pageThreePath,
+    ]);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+it('retains and polls the shown page after failed navigation; Retry revisits the failed cursor', async () => {
+  await i18n.changeLanguage('en');
+  vi.useFakeTimers();
+  try {
+    let attempts = 0;
+    let release!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { release = resolve; });
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === alertsPath) return alertPage('Shown alert', pageToken);
+      if (url !== pageTwoPath) throw new Error('Unexpected fixture request: ' + url);
+      attempts++;
+      if (attempts === 1) return pending;
+      if (attempts === 3) return json({ error: { code: 'FAILED' } }, 500);
+      return alertPage('Read ' + attempts, null);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = setupAlerts(new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }));
+    const advance = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+    await advance(25);
+    const row = screen.getByRole('heading', { name: 'Shown alert' });
+    fireEvent.click(pageButton('Next'));
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(row.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true');
+    expect(pageButton('Next')).toBeDisabled();
+    expect(screen.getByText('Page 1')).toBeInTheDocument();
+    await advance(25);
+    release(json({ error: { code: 'FAILED' } }, 500));
+    await advance(25);
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load data');
+    expect(row).toBeInTheDocument();
+    expect(screen.getByText('Page 1')).toBeInTheDocument();
+
+    await advance(30_000);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([alertsPath, pageTwoPath, alertsPath]);
+    expect(row).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await advance(25);
+    const secondRow = screen.getByRole('heading', { name: 'Read 2' });
+    expect(screen.getByText('Page 2')).toBeInTheDocument();
+    expect(row).not.toBeInTheDocument();
+
+    await client.invalidateQueries({ queryKey: ['alerts'] });
+    await advance(25);
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load data');
+    expect(secondRow).toBeInTheDocument();
+    expect(screen.getByText('Page 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await advance(25);
+    expect(screen.getByRole('heading', { name: 'Read 4' })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      alertsPath, pageTwoPath, alertsPath, pageTwoPath, pageTwoPath, pageTwoPath,
+    ]);
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
 });
 it.each([['commands','/api/commands'],['audit','/api/audit-logs']] as const)('preserves cursor pagination for %s',async(kind,path)=>{
  await i18n.changeLanguage('en');
@@ -63,15 +229,15 @@ it('keeps filters valid when navigating between record routes',async()=>{
  fireEvent.change(screen.getByRole('combobox',{name:'Filter'}),{target:{value:'qq'}});
  await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/commands?limit=50&platform=qq',expect.anything()));
  fireEvent.click(screen.getByText('Alerts route'));
- await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/alerts',expect.anything()));
+ await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith(alertsPath,expect.anything()));
  expect(screen.getByRole('combobox')).toHaveValue('');
  fireEvent.change(screen.getByRole('combobox'),{target:{value:'acked'}});
- await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/alerts?state=acked',expect.anything()));
+ await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith(alertsPath+'&state=acked',expect.anything()));
  fireEvent.click(screen.getByText('Audit route'));
  await waitFor(()=>expect(fetchMock).toHaveBeenCalledWith('/api/audit-logs?limit=50',expect.anything()));
  fireEvent.click(screen.getByText('Commands route'));
  await waitFor(()=>expect(screen.getByRole('combobox',{name:'Filter'})).toHaveValue(''));
- expect(fetchMock.mock.calls.map(call=>call[0])).not.toContain('/api/alerts?state=qq');
+ expect(fetchMock.mock.calls.map(call=>call[0])).not.toContain(alertsPath+'&state=qq');
  expect(fetchMock.mock.calls.map(call=>call[0])).not.toContain('/api/audit-logs?limit=50&platform=acked');
  expect(fetchMock.mock.calls.map(call=>call[0])).not.toContain('/api/commands?limit=50&platform=acked');
 });
@@ -142,3 +308,74 @@ it('reads back an acknowledged channel alert without showing it as resolved',asy
  expect(within(card).queryByRole('button',{name:'Acknowledge alert'})).not.toBeInTheDocument();
  expect(fetchMock).toHaveBeenCalledWith('/api/alerts/alr1/ack',expect.objectContaining({method:'POST'}));
 });
+
+it('reads back acknowledgement on the current Open page without visiting Latest', async () => {
+  await i18n.changeLanguage('en');
+  const open = alertsPath + '&state=open';
+  const second = open + '&cursor=open-history';
+  const post = '/api/alerts/older/ack';
+  const target = { ...alertRows('channel_down')[0], id: 'older', subjectId: 'telegram' };
+  let acknowledged = false;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url === alertsPath) return alertPage('Unfiltered alert', null);
+    if (url === open) return alertPage('Newest open alert', 'open-history', 50);
+    if (url === second) return json({ data: acknowledged ? [] : [target], nextCursor: null });
+    if (url === post && options?.method === 'POST') {
+      await pending;
+      acknowledged = true;
+      return json({ data: { ...target, state: 'acked' } });
+    }
+    throw new Error('Unexpected fixture request: ' + url);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  setupAlerts();
+  await screen.findByRole('heading', { name: 'Unfiltered alert' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Filter' }), { target: { value: 'open' } });
+  await screen.findByText(/Newest open alert fixture 0/);
+  fireEvent.click(pageButton('Next'));
+  const row = await screen.findByRole('heading', { name: 'Platform channel is unavailable' });
+  const ack = screen.getByRole('button', { name: 'Acknowledge alert' });
+  fireEvent.click(ack);
+  expect(await screen.findByText('Loading…')).toBeInTheDocument();
+  expect(ack).toBeDisabled();
+  expect(pageButton('Previous')).toBeDisabled();
+  release();
+  await waitFor(() => expect(row).not.toBeInTheDocument());
+  expect(screen.getByText('Page 2')).toBeInTheDocument();
+  expect(pageButton('Previous')).toBeEnabled();
+  expect(screen.queryByText('State: Resolved')).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.map(([url, options]) => [url, options?.method])).toEqual([
+    [alertsPath, 'GET'], [open, 'GET'], [second, 'GET'], [post, 'POST'], [second, 'GET'],
+  ]);
+});
+
+it.each([[404, 'NOT_FOUND'], [503, 'TIMEOUT_UNKNOWN']])(
+  'shows an acknowledgement error %i, reads back without resubmitting, and makes no recovery claim',
+  async (status, code) => {
+    await i18n.changeLanguage('en');
+    const fetchMock = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url === '/api/alerts/alr-fixture/ack' && options?.method === 'POST') {
+        return json({ error: { code } }, status);
+      }
+      if (url !== alertsPath) throw new Error('Unexpected fixture request: ' + url);
+      return json({
+        data: [{ ...alertRows('channel_down')[0], id: 'alr-fixture', subjectId: 'telegram' }],
+        nextCursor: null,
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    setupAlerts(new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: 2 } } }));
+    await screen.findByRole('heading', { name: 'Platform channel is unavailable' });
+    fireEvent.click(screen.getByRole('button', { name: 'Acknowledge alert' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(code);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Acknowledge alert' })).toBeEnabled());
+    expect(screen.getByText('State: Open')).toBeInTheDocument();
+    expect(screen.queryByText('State: Acknowledged')).not.toBeInTheDocument();
+    expect(screen.queryByText('State: Resolved')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url, options]) => [url, options?.method])).toEqual([
+      [alertsPath, 'GET'], ['/api/alerts/alr-fixture/ack', 'POST'], [alertsPath, 'GET'],
+    ]);
+  },
+);
