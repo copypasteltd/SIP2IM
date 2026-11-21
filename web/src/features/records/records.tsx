@@ -17,7 +17,7 @@ function RecordsContent({kind}:{kind:RecordKind}) {
  const query=useInfiniteQuery({queryKey:[kind,filter,commandKind],initialPageParam:undefined as string|undefined,queryFn:({pageParam,signal})=>{
   const params=new URLSearchParams(kind==='alerts'?(filter?{state:filter}:{}):{limit:'50',...(kind==='commands'&&filter?{platform:filter}:{}),...(kind==='commands'&&commandKind?{kind:commandKind}:{}),...(pageParam?{cursor:pageParam}:{})});
   const search=params.toString();return request<RecordItem[]>(path+(search?'?'+search:''),{signal});
- },getNextPageParam:p=>kind==='alerts'?undefined:p.nextCursor??undefined});
+ },getNextPageParam:p=>kind==='alerts'?undefined:p.nextCursor??undefined,refetchInterval:kind==='alerts'?30_000:false});
  const ack=useMutation({mutationFn:(id:string)=>request('/api/alerts/'+encodeURIComponent(id)+'/ack',{method:'POST'}),onSuccess:()=>{void client.invalidateQueries({queryKey:['alerts']});void client.invalidateQueries({queryKey:['dashboard']});}});
  const rows=query.data?.pages.flatMap(p=>p.data)??[];
  const retry=()=>{if(query.isFetchNextPageError) void query.fetchNextPage();else void query.refetch();};
@@ -27,7 +27,7 @@ function RecordsContent({kind}:{kind:RecordKind}) {
  {query.isPending?<p role="status">{t('loading')}</p>:<>
  {query.isError&&<div role="alert"><p>{t(query.isFetchNextPageError?'records.nextPageError':'loadError')}</p><button className="secondary" disabled={query.isFetching} onClick={retry}>{t('records.retry')}</button></div>}
  {query.data&&<>{rows.length===0&&<p>{t('empty')}</p>}<div className="device-list">{rows.map(row=><article className="panel" key={row.id}>
- <h2>{row.type??row.action??row.platform??t('unknown')}</h2>
+ <h2>{kind==='alerts'&&row.type ? t('alertType.'+row.type,{defaultValue:row.type}) : row.type??row.action??row.platform??t('unknown')}</h2>
  {kind==='commands'?<><dl>
  <dt>{t('records.kind')}</dt><dd>{row.kind??t('unknown')}</dd>
  <dt>{t('records.state')}</dt><dd>{row.state??t('unknown')}</dd>

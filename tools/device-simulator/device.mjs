@@ -19,13 +19,17 @@ export function createDevice({ token, simCount = 1, now = Date.now }) {
   const cache = new Map(); let call = null;
   const emit = (type,payload) => envelope(type,payload,now());
   const hello = () => emit('hello',{token,apkVersion:'0.1.0',apkCode:1,protocol:1,manufacturer:'Simulator',model:'Virtual',apiLevel:34,locale:'en'});
-  const heartbeat = () => emit('heartbeat',{battery:100,charging:true,network:'wifi',signalDbm:null,shizuku:'running',paused:false});
+  const heartbeat = () => emit('heartbeat',{battery:100,charging:true,network:'wifi',signalDbm:null,shizuku:'unknown',paused:false});
   const state = (callId,state,cause=null) => emit('call.state',{callId,state,cause});
   function command(message, startMedia = () => {}) {
     if (!message || message.v !== 1 || typeof message.id !== 'string' || !message.id.startsWith('cmd_') || !message.payload || typeof message.payload !== 'object') throw new TypeError('invalid command envelope');
-    if (cache.has(message.id)) return [cache.get(message.id)];
-    const p=message.payload; let error=null; const events=[];
-    if (message.type === 'sms.send') {
+    const p = message.payload;
+    const versionedCall = typeof message.type === 'string' && message.type.startsWith('call.') && 'generation' in p;
+    const cacheKey = versionedCall ? 'versioned:' + message.id : message.id;
+    if (cache.has(cacheKey)) return [cache.get(cacheKey)];
+    let error=null; const events=[];
+    if (versionedCall) error='CAPABILITY_UNSUPPORTED';
+    else if (message.type === 'sms.send') {
       if (typeof p.taskId !== 'string' || !Number.isInteger(p.slot) || typeof p.to !== 'string' || typeof p.body !== 'string' || !('subId' in p)) error='BAD_MESSAGE';
       else if (p.slot < 0 || p.slot >= simCount) error='SIM_NOT_READY';
       else events.push(emit('sms.result',{taskId:p.taskId,state:'sent',errorCode:null}));
@@ -43,7 +47,7 @@ export function createDevice({ token, simCount = 1, now = Date.now }) {
     } else if (message.type === 'config.update') { /* transport owns heartbeat scheduling */ }
     else error='CAPABILITY_UNSUPPORTED';
     const ack=emit('ack',{refId:message.id,ok:error===null,error});
-    cache.set(message.id,ack); if (cache.size > 500) cache.delete(cache.keys().next().value);
+    cache.set(cacheKey,ack); if (cache.size > 500) cache.delete(cache.keys().next().value);
     return [ack,...events];
   }
   function incoming(callId, from = null) {

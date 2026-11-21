@@ -14,6 +14,7 @@ node tools/demo/server.mjs
 Open [127.0.0.1:41730](http://127.0.0.1:41730/) and enter the public demo username `demo` and password `demo`. For a different port, run `node tools/demo/server.mjs --port 41731` and open that port on `127.0.0.1`. Press Ctrl+C to stop. Restart after rebuilding the Web bundle or to reset the fixture state.
 
 - **Dashboard and Devices.** Three synthetic handsets cover online, offline and paused states. Use the device list filters and open the Studio handset to inspect its two SIMs.
+- **Alerts.** Open the Alerts page to inspect a synthetic offline warning. The [recorded walkthrough](../../docs/media/walkthrough.mp4) shows the dashboard, localized warning, binding cancellation and simulated SMS.
 - **Binding v2.** In Devices, choose **Bind new device** to issue a sample code and QR for the demo address. Use the QR as a visual example. Close the dialog and open **Binding records**. Select an unused record, choose **Review cancellation**, then choose **Confirm cancellation**. The inventory also includes a seeded used v2 record for Field spare. Cancelling that record removes the synthetic handset from the Devices list. [Web binding controls](../../web/src/features/devices/binding.tsx)
 - **SMS.** Open the thread for `+12025550111`. Replies to fictional numbers `+12025550100` through `+12025550199` update the in-memory thread and its simulated send status. Search also covers a fixture message with no SIM assignment. Use fictional text in demos and captures.
 - **Calls, Channels and Settings.** Browse ended sample calls and their event timelines. The dialer has no available devices. QQ and Telegram are offline fixtures with login disabled. Change the synthetic inbound selection or save a setting such as the bot language to see it update on the next read.
@@ -40,6 +41,7 @@ node tools/demo/server.mjs
 打开 [127.0.0.1:41730](http://127.0.0.1:41730/)，用公开演示用户名 `demo` 和密码 `demo` 登录。如需更换端口，可运行 `node tools/demo/server.mjs --port 41731`，再打开 `127.0.0.1` 上对应的端口。按 Ctrl+C 停止。重新构建 Web 或要重置合成数据时，重启演示进程。
 
 - **仪表盘和设备。** 三部合成设备覆盖在线、离线和暂停状态。可按状态筛选，并点开「演示主机」查看两张 SIM。
+- **告警。** 打开告警页查看合成离线记录。[演示录屏](../../docs/media/walkthrough.mp4)展示仪表盘、告警、绑定取消和模拟短信。
 - **绑定 v2。** 在设备页点击 **绑定新设备**，查看指向本地演示地址的样例绑定码和二维码。二维码仅用于展示。关闭弹窗，打开 **绑定记录**，选择未使用的记录，点击 **核对取消操作**，再点击 **确认取消绑定码**。初始清单也有一条关联「离线备用」的已使用 v2 记录。取消该记录后，对应的合成设备会从设备列表中移除。[Web 绑定界面](../../web/src/features/devices/binding.tsx)
 - **短信。** 打开 `+12025550111` 的会话。向 `+12025550100` 至 `+12025550199` 的虚构号码回复，会更新内存中的会话及模拟发送状态。历史搜索还可以看到一条未分配 SIM 的样例短信。演示和录制时请使用虚构文本。
 - **通话、渠道和设置。** 可查看已结束的样例通话及事件时间线。拨号界面没有可用设备。QQ 和 Telegram 为离线合成数据，禁用登录。可切换模拟入站渠道，或保存机器人语言等设置并查看更新。

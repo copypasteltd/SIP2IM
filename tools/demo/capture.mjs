@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const origin = 'http://127.0.0.1:41730';
 const width = 1440, height = 900, fps = 10;
-const names = ['dashboard.png', 'bindings.png', 'sms.png', 'walkthrough.mp4', 'walkthrough.gif'];
+const names = ['dashboard.png', 'alerts.png', 'bindings.png', 'sms.png', 'walkthrough.mp4', 'walkthrough.gif'];
 const caption = 'Synthetic reply: picked up at the demo desk.';
 const [chrome, outputArg = 'docs/media'] = process.argv.slice(2);
 const output = resolve(root, outputArg);
@@ -187,6 +187,13 @@ try {
   await snapshot('dashboard.png');
   await delay(1300);
 
+  await click('nav a[href="/alerts"]', 'Alerts');
+  await locationIs('/alerts');
+  await wait(() => Array.from(document.querySelectorAll('main h2')).some(h => h.textContent.trim() === 'Device has gone offline'), 'localized fixture alert');
+  await delay(650);
+  await snapshot('alerts.png');
+  await delay(1400);
+
   await click('nav a[href="/devices"]', 'Devices');
   await locationIs('/devices');
   await button('Binding records');
@@ -230,7 +237,7 @@ try {
   for (const name of names) {
     await writeFile(join(output, name), await readFile(join(work, name)), { flag: 'wx' });
   }
-  console.log('Verified synthetic dashboard, binding cancellation and SMS; exported ' + shot + ' actual Chrome frames.');
+  console.log('Verified synthetic dashboard, health alerts, binding cancellation and SMS; exported ' + shot + ' actual Chrome frames.');
 } finally {
   capturing = false;
   await frames?.catch(() => {});

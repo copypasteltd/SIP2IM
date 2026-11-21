@@ -11,7 +11,7 @@
 | Android `app` 和 `protocol` | SQLite 保存绑定、命令、短信任务和事件。前台服务通过 `/ws/device` 发送状态、心跳和事件。 [绑定与 outbox](../android/app/src/main/kotlin/io/voipgw/gateway/core/Outbox.kt) |
 | Core | Fastify 管理与设备 API、WebSocket、PostgreSQL 持久化、设备与短信调度、通话协调、适配器 IPC。`/ws/admin` 推送更新信号。 [启动入口](../core/src/main.ts) |
 | Web | React 管理后台，含仪表盘、设备、短信、通话、通道、设置和操作记录。UI 以 API 读回为准。 [后台路由](../web/src/app/router.tsx) |
-| QQ / Telegram | 平台进程通过本地 IPC 接入。QQ 包含入口和测试替身，Telegram 有可选文本后端。平台登录和文本按实际后端能力验证，真实平台语音仍待实现或验收。 [QQ](../adapters/qq/src/main.mjs) [Telegram](../adapters/telegram/README.md) |
+| QQ / Telegram | 适配器通过本地 IPC 连接 Core。QQ 提供入口和测试替身，Telegram 提供可选文本后端。Core 当前开放账号控制，平台消息和语音保持禁用。 [QQ](../adapters/qq/README.md) · [Telegram](../adapters/telegram/README.md) · [Core 能力边界](../core/src/channels/adapter-runtime.ts) |
 | 共享协议与工具 | TypeScript 与 Kotlin 协议模块、共享测试夹具、合成设备工具。运行中的设备模拟器是协议测试客户端，无需 Android 模拟器。 [TS 协议](../packages/protocol/package.json) [Kotlin 构建](../android/build.gradle.kts) [设备模拟器](../tools/device-simulator/README.md) |
 
 ### v2 绑定与设备所有权
@@ -32,9 +32,17 @@
 | 设备事件 ACK | Core 在持久化或认可精确重放后，按当前连接返回对应正向 ACK。Android 以同一事件 ID 的正向 ACK 推进本地 outbox。 | 持久化未知时保留原有事件。隔离模式可能阻止队头前进。 [设备连接](../core/src/ws-device/session.ts) [事件投影](../core/src/devices/event-producer.ts) [Android outbox 节流](../android/protocol/src/main/kotlin/io/voipgw/protocol/OutboxPacer.kt) |
 | 系统或运营商结果 | `sent`、`failed`、`unknown` 是独立的设备结果。`delivered` 需要独立且可靠的投递证据。 | 当前 Android 回调路径不从系统发送回执推断运营商投递。真实短信、送达和通话需要独立验收。 [Android 回调](../android/app/src/main/kotlin/io/voipgw/gateway/sms/SmsCallbackReceiver.kt) [结果协调](../core/src/sms/results.ts) |
 
+Android 将发送回执绑定到原设备绑定、连接代次、任务和短信分段。全部分段都有一致结果时，才报告 `sent` 或 `failed`。成功与失败分段并存会保留 `unknown/SMS_PARTIAL_SEND`。同一分段的相矛盾回执会报告 `unknown/SMS_CALLBACK_CONFLICT`。Core 保留原始事件，并将已确认的矛盾投影为 `unknown/SMS_RESULT_CONFLICT`，后续普通回执无法覆盖它。迟到回执须与原申领匹配。旧版未携带申领标识的回执留待对账。所有未知结果沿用原任务且不自动重发。[Android 回执判定](../android/app/src/main/kotlin/io/voipgw/gateway/sms/SmsSendEvidence.kt) · [Core 结果对账](../core/src/sms/results.ts)
+
 Core 在启动核对和周期维护中处理遗留状态、队列过期、退役 SIM 和管理员更新信号。队列发现与命令 ACK 分开执行。Core 为每张活跃 SIM 读取独立的有序批次，根据各 SIM 的限速等待时间安排设备唤醒。已确认的速率变更唤醒受影响设备。提交成功但读取不到新值时，暂停下发直到取得当前值。提交本身不明确时，暂停下发直到在独占所有权下完成核对并重启。WebSocket 广播与清理持久化标记之间发生故障可能产生重复通知。管理端将通知用于触发读回。 [启动入口](../core/src/main.ts) [速率运行逻辑](../core/src/sms/rate-runtime.ts) [队列仓库](../core/src/sms/queue-repo.ts) [维护通知](../core/src/sms/maintenance-invalidation.ts)
 
 通话控制在外部下发前复核管理员会话、设备连线和会话状态。挂断与同一通话的进展协调。Web 通话还受明确的设备验收名单限制，Android 对通话命令返回不支持。 [通话状态机](../core/src/calls/web-calls.ts) [启动与能力设置](../core/src/main.ts) [Android 通话命令](../android/protocol/src/main/kotlin/io/voipgw/protocol/UnsupportedCallCommand.kt)
+
+自动化测试可显式注入按通话代次运行的内存设备夹具，覆盖过期连接、挂断匹配和媒体开启失败。普通设备模拟器的 Shizuku 状态保持不明。真实 Web 通话仍需要验收名单、实际设备控制和有效的双向音频。[内存通话夹具](../tools/device-simulator/README.md)
+
+### 设备健康告警
+
+Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系过且已经超时的设备会触发离线告警。Shizuku 不可用和 SIM 锁定或缺失需要持续 60 秒的有效采样。缺少权限告警需要明确的短信权限拒绝。SIM 清单不可观测时，Android 仍可上报独立的短信权限，空清单保持非权威。过期或不明证据保留既有告警状态。确认告警保留历史，同一次故障期间继续抑制重复提示。观察到恢复后，新的故障才会再次提示。Core 在事务确认后推送变化，Web 告警列表每 30 秒回读。渠道、通话和平台告警仍待接入。[健康告警](../core/src/devices/health-alerts.ts) · [Web 告警列表](../web/src/features/records/records.tsx)
 
 ### 异常短信托管
 
@@ -65,7 +73,7 @@ Core 在启动核对和周期维护中处理遗留状态、队列过期、退役
 | Android `app` and `protocol` | SQLite stores binding, command, SMS task and event data. The foreground service sends status, heartbeats and events over `/ws/device`. [Binding and outbox](../android/app/src/main/kotlin/io/voipgw/gateway/core/Outbox.kt) |
 | Core | Fastify management/device APIs, WebSockets, PostgreSQL persistence, device and SMS scheduling, call coordination and adapter IPC. `/ws/admin` sends update notifications. [Startup](../core/src/main.ts) |
 | Web | React administration console with dashboard, devices, SMS, calls, channels, settings and operations records. The UI reads authoritative state through the API. [Web routes](../web/src/app/router.tsx) |
-| QQ / Telegram | Platform processes connect through local IPC. QQ has an entry point and test doubles. Telegram has an optional text backend. Validate platform login and text against the selected backend. Real platform voice remains unimplemented or unverified. [QQ](../adapters/qq/src/main.mjs) [Telegram](../adapters/telegram/README.md) |
+| QQ / Telegram | Adapters connect to Core through local IPC. QQ provides an entry point and test doubles. Telegram provides an optional text backend. Core currently permits account control and keeps platform messaging and voice disabled. [QQ](../adapters/qq/README.md) · [Telegram](../adapters/telegram/README.md) · [Core capability gate](../core/src/channels/adapter-runtime.ts) |
 | Protocol and tools | TypeScript and Kotlin protocol modules, shared fixtures and synthetic device tooling. The device simulator is a protocol test client and runs without an Android emulator. [TS protocol](../packages/protocol/package.json) [Kotlin build](../android/build.gradle.kts) [Device simulator](../tools/device-simulator/README.md) |
 
 ### v2 binding and device ownership
@@ -86,9 +94,17 @@ Core 在启动核对和周期维护中处理遗留状态、队列过期、退役
 | Device event ACK | Core can return a matching positive ACK on the current connection after persistence or recognition of exact replay. Android advances the local outbox on a positive ACK for the same event ID. | Keep the original event when persistence is uncertain. Quarantine mode can determine whether the queue head advances. [Device socket](../core/src/ws-device/session.ts) [Event projection](../core/src/devices/event-producer.ts) [Android outbox pacing](../android/protocol/src/main/kotlin/io/voipgw/protocol/OutboxPacer.kt) |
 | Android or carrier result | `sent`, `failed` and `unknown` are separate device results. `delivered` requires independent delivery evidence. | The current Android callback does not infer carrier delivery from the platform send result. Actual SMS, delivery and calls need separate acceptance. [Android callback](../android/app/src/main/kotlin/io/voipgw/gateway/sms/SmsCallbackReceiver.kt) [Result reconciliation](../core/src/sms/results.ts) |
 
+Android scopes each send callback to the original binding, connection generation, task and SMS part. It reports `sent` or `failed` when every part has a matching result. A mix of successful and failed parts stays `unknown/SMS_PARTIAL_SEND`. Contradictory callbacks on one part produce `unknown/SMS_CALLBACK_CONFLICT`. Core preserves the source event and projects confirmed contradiction as `unknown/SMS_RESULT_CONFLICT`, which subsequent ordinary callbacks cannot overwrite. Late callbacks must match the original claim. Legacy unscoped callbacks require reconciliation. Unknown work retains the original task and never triggers automatic resend. [Android send evidence](../android/app/src/main/kotlin/io/voipgw/gateway/sms/SmsSendEvidence.kt) · [Core reconciliation](../core/src/sms/results.ts)
+
 Core runs startup reconciliation and periodic maintenance for earlier state, queue expiry, retired SIMs and administrator notifications. Queue discovery runs independently of command ACKs. Core reads a bounded FIFO batch for each active SIM and schedules device wakeups using each SIM’s rate-limit delay. A confirmed rate change wakes affected devices. When a rate write committed without returning the new value, dispatch waits for a fresh read. When the commit itself is uncertain, dispatch stays suspended until reconciliation and restart under exclusive ownership. If Core fails between WebSocket fanout and clearing the durable marker, it can publish a duplicate. The admin console refetches authoritative state on notification. [Startup](../core/src/main.ts) [Rate runtime](../core/src/sms/rate-runtime.ts) [Queue repository](../core/src/sms/queue-repo.ts) [Maintenance notifications](../core/src/sms/maintenance-invalidation.ts)
 
 Call controls recheck the administrator session, device connection and call state before sending. A hangup is serialized with progress on the same call. Web calling requires an explicit list of verified devices. Android reports call commands as unsupported. [Call state machine](../core/src/calls/web-calls.ts) [Startup and capability settings](../core/src/main.ts) [Android call commands](../android/protocol/src/main/kotlin/io/voipgw/protocol/UnsupportedCallCommand.kt)
+
+Offline tests can inject a generation-aware in-memory device fixture to exercise replaced connections, exact hangup matching and failed media setup. The ordinary simulator reports Shizuku as unknown. Real Web calling still requires a verified allowlist, physical device control and working two-way audio. [In-memory call fixture](../tools/device-simulator/README.md)
+
+### Device health alerts
+
+The single Core process periodically reconciles four device health alerts. An offline alert requires a previously observed device and a confirmed timeout. Shizuku unavailability and a locked or absent SIM require 60 seconds of fresh unhealthy samples. A missing SMS permission requires an explicit denial. Android can still report SMS permissions when its SIM inventory is unknown, using an empty non-authoritative inventory. Stale or inconclusive evidence leaves the existing alert state in place. Acknowledgement preserves history and suppresses repeat warnings within the same incident. Confirmed recovery allows a later incident to raise a fresh alert. Core emits changes after commit and the Web alert list refetches every 30 seconds. Channel, call and platform alert integration remains pending. [Health alert reconciliation](../core/src/devices/health-alerts.ts) · [Web alert list](../web/src/features/records/records.tsx)
 
 ### Exceptional SMS custody
 

@@ -4,33 +4,33 @@
 
 ## 简体中文
 
-这是源码首次发布的记录。实际测试在原生 Windows 环境进行，未启动 Docker、WSL 或 Android 模拟器，未连接真实 SIM、平台账号、生产服务器或业务数据库。通过的是本地构建、离线用例和合成演示，不是生产验收。
+本轮在 [首次源码发布](https://github.com/copypasteltd/SIP2IM/blob/250a9bc129a6d19016330ff97cec69c03df47a14/docs/VERIFICATION.md) 的基础上，验证了短信回执、设备健康告警、适配器 IPC 和内存通话夹具。测试使用原生 Windows、离线夹具及仅回环的合成 Web 演示。生产 PostgreSQL、Android 真机、真实 SIM、运营商回执和平台账号的验收待执行。
 
 | 范围 | 实测结果 | 证据边界 |
 |---|---|---|
-| Core | Node 22.23.5：TypeScript 检查通过；782 项测试通过、6 项跳过；ESM 构建通过。 | 离线覆盖设备与管理员会话、绑定重放撤销、每 SIM 调度、提交不明、通知、通话代次、媒体接线和关停。PostgreSQL 与平台相关的选配用例未启用，测试数据和帧均为合成。 |
-| Web | Node 22.23.5：类型检查、173 项离线 Web 测试、ESLint 和三语键检查通过。 | Vitest/JSDOM 使用合成接口。浏览器证据见下。 |
-| Android | JDK 17、Gradle 8.11.1 和 SDK Platform 35：app 31 项、protocol 34 项 JVM 单测通过；lint 0 错误、6 警告；调试 APK 构建通过。 | 不证明安装、权限、后台保活、运营商回执或蜂窝音频。生成的 APK 不入库。 |
-| 协议与平台夹具 | TypeScript 协议、QQ 12 项和 Telegram 24 项检查通过。 | QQ/TG 使用合成 IPC 和客户端夹具，不涉及真实账号或平台能力。 |
-| Python | 模型和源码探针 83 项、Android 绑定 SQLite 夹具 7 项通过。 | SQLite 用的是桌面夹具，不能替代原生 Android 数据升级。 |
-| 合成演示 | 8 项原生冒烟测试通过。Chrome 从真实 Web 构建完成登录、仪表盘、核对并取消一条未使用的演示绑定记录、发送一条模拟短信。 | 没有连接 Android、PostgreSQL、QQ/Telegram 或运营商。不演示真实外拨与双向音频。 |
+| Core | Node 22.23.5 类型检查、ESM 构建及 807 项离线测试通过。6 项跳过。 | 健康告警、持久化短信结果、绑定、调度和关停通过离线夹具。跳过 5 个 PostgreSQL 用例及 1 个 Windows 上不适用的 IPC 用例。 |
+| Web | Node 22.23.5：类型检查、174 项离线 Web 测试、ESLint 和三语键检查通过。 | Vitest/JSDOM 使用合成接口。告警回读及浏览器演示已验证。 |
+| Android | JDK 17、Gradle 8.11.1 和 SDK Platform 35：app 39 项、protocol 34 项 JVM 单测通过；lint 0 错误、7 警告；调试 APK 构建通过。 | 不证明安装、权限、后台保活、运营商回执或蜂窝音频。生成的 APK 不入库。 |
+| 适配器与模拟器 | QQ 25 项、Telegram 29 项、软件模拟器 20 项 Node 测试与 2 项 Python 测试通过。 | 内存传输覆盖共享 ACK 和时间戳、替换连接与通话代次。真实账号、平台消息和蜂窝音频需要独立验收。 |
+| 桌面 SQLite 和 Python | 83 项模型与源码测试、7 项绑定夹具和 3 项短信发送证据夹具通过。 | 桌面 SQLite 覆盖原申领核对与事务回滚，原生 Android 存储迁移需要真机验证。 |
+| 合成演示 | 8 项原生冒烟测试通过。Chrome 从真实 Web 构建完成登录、仪表盘、查看设备离线告警、核对并取消一条未使用的演示绑定记录、发送一条模拟短信。 | 没有连接 Android、PostgreSQL、QQ/Telegram 或运营商。不演示真实外拨与双向音频。 |
 
-保留的证据：[仪表盘](media/dashboard.png) · [绑定取消](media/bindings.png) · [模拟发送](media/sms.png) · [MP4](media/walkthrough.mp4) · [GIF](media/walkthrough.gif)。三张截图为 1440×900。静音 MP4 为 H.264、1440×900、124 帧、12.4 秒；GIF 为 800×500、约 12.43 秒。两者均完整解码。画面中的号码、记录、消息与账号为合成数据。
+本轮实录覆盖仪表盘、设备离线告警、取消未使用的绑定记录和模拟短信发送。[仪表盘](media/dashboard.png) · [设备告警](media/alerts.png) · [绑定取消](media/bindings.png) · [模拟发送](media/sms.png) · [MP4](media/walkthrough.mp4) · [GIF](media/walkthrough.gif)。四张截图为 1440×900。静音 H.264 MP4 为 1440×900、133 帧、13.3 秒。GIF 为 800×500、93 帧、约 13.28 秒。两种格式均已完整解码，页面使用合成记录。
 
 ## English
 
-This is the first source publication's verification record. The checks ran on native Windows, without Docker, WSL, or an Android emulator. No real SIM, platform account, production server, or business database was connected. Build, offline test, and synthetic demonstration evidence are not production acceptance.
+This update validates SMS result handling, device health alerts, adapter IPC and the in-memory call fixture. Tests ran on native Windows with offline fixtures and a loopback-only synthetic Web demo. Production PostgreSQL, physical Android devices, SIMs, carrier receipts and live platform accounts still require separate acceptance. [Initial source publication](https://github.com/copypasteltd/SIP2IM/blob/250a9bc129a6d19016330ff97cec69c03df47a14/docs/VERIFICATION.md)
 
 | Scope | Observed result | Evidence boundary |
 |---|---|---|
-| Core | Node 22.23.5: TypeScript check passed; 782 tests passed and 6 skipped; ESM build passed. | The offline suite covers device and admin sessions, binding replay and cancellation, per-SIM scheduling, uncertain commits, notifications, call generations, media wiring and shutdown. Opt-in database and platform cases were not enabled. Records and frames were synthetic. |
-| Web | Node 22.23.5: TypeScript, 173 offline Web tests, ESLint and locale-key parity passed. | Vitest/JSDOM uses synthetic API responses. See below for the actual browser recording. |
-| Android | JDK 17, Gradle 8.11.1 and SDK Platform 35: 31 app and 34 protocol JVM tests passed; lint reported 0 errors and 6 warnings; the debug APK built successfully. | This does not establish physical installation, permissions, background behavior, carrier receipts or cellular call audio. The generated APK is not tracked. |
-| Protocol and adapters | TypeScript protocol checks, 12 QQ tests and 24 Telegram tests passed. | The adapter tests use synthetic IPC/client fixtures and do not verify actual accounts or platforms. |
-| Python | 83 model/source probes and 7 Android binding SQLite fixtures passed. | Desktop SQLite fixtures do not replace on-device Android migration tests. |
-| Synthetic demo | 8 native smoke tests passed. Native Chrome rendered the actual Web build and verified sign-in, Dashboard, review and cancellation of one unused fixture binding, and a simulated SMS send. | The fixture has no backend connection to Android, PostgreSQL, QQ/Telegram or carriers. It does not demonstrate a real call or two-way audio. |
+| Core | Node 22.23.5 type check, ESM build and 807 offline tests passed. Six tests skipped. | Fixture coverage includes health alerts, durable SMS results, binding, scheduling and shutdown. The skips cover five PostgreSQL tests and one IPC case that requires a different OS. |
+| Web | Node 22.23.5: TypeScript, 174 offline Web tests, ESLint and locale-key parity passed. | Vitest/JSDOM uses synthetic API responses. Coverage includes alert polling and recovery. |
+| Android | JDK 17, Gradle 8.11.1 and SDK Platform 35: 39 app and 34 protocol JVM tests passed; lint reported 0 errors and 7 warnings; the debug APK built successfully. | This does not establish physical installation, permissions, background behavior, carrier receipts or cellular call audio. The generated APK is not tracked. |
+| Adapters and simulator | 25 QQ, 29 Telegram, 20 Node simulator and 2 Python simulator tests passed. | In-memory transports verify shared ACK and timestamps, replaced connections and call generations. Live accounts, platform messaging and cellular audio require separate acceptance. |
+| Desktop SQLite and Python | 83 model and source checks, 7 binding fixtures and 3 SMS send-evidence fixtures passed. | Desktop SQLite covers original-claim matching and rollback. Physical Android storage migration requires on-device verification. |
+| Synthetic demo | 8 native smoke tests passed. Native Chrome rendered the actual Web build and verified sign-in, Dashboard, the offline warning, review and cancellation of one unused fixture binding, and a simulated SMS send. | The fixture has no backend connection to Android, PostgreSQL, QQ/Telegram or carriers. It does not demonstrate a real call or two-way audio. |
 
-Recorded evidence: [Dashboard](media/dashboard.png) · [Binding cancellation](media/bindings.png) · [Simulated SMS](media/sms.png) · [MP4](media/walkthrough.mp4) · [GIF](media/walkthrough.gif). The screenshots are 1440×900. Silent H.264 MP4: 1440×900, 124 frames, 12.4 seconds. GIF: 800×500, about 12.43 seconds. Both files were decoded end-to-end. All numbers, records, messages and account data shown are synthetic.
+The walkthrough covers Dashboard, a device offline warning, cancellation of an unused binding record, and a simulated SMS send. [Dashboard](media/dashboard.png) · [Device alerts](media/alerts.png) · [Binding cancellation](media/bindings.png) · [Simulated SMS](media/sms.png) · [MP4](media/walkthrough.mp4) · [GIF](media/walkthrough.gif). The four screenshots are 1440×900. The silent H.264 MP4 is 1440×900 with 133 frames and runs for 13.3 seconds. The GIF is 800×500 with 93 frames and runs for about 13.28 seconds. Both files decoded end to end. The UI uses synthetic records.
 
 ## Reproduce / 复现
 

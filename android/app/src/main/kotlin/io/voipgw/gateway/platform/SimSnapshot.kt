@@ -9,7 +9,7 @@ import android.telephony.TelephonyManager
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Null means inventory was not reliably observed; callers must suppress the snapshot. */
+/** Null means no reliable SIM inventory, not evidence of an absent SIM. */
 object SimSnapshot {
     fun observe(context: Context): JSONArray? {
         if (context.checkCallingOrSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return null

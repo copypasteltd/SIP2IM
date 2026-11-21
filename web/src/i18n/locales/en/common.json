@@ -434,6 +434,12 @@
       "unknown": "Unknown"
     }
   },
+  "alertType": {
+    "device_offline": "Device has gone offline",
+    "shizuku_stopped": "Shizuku is unavailable",
+    "sim_not_ready": "SIM is not ready",
+    "sms_permission_missing": "SMS permission missing"
+  },
   "records": {
     "kind": "Kind",
     "kindFilter": "Command kind",

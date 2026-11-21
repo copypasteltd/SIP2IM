@@ -17,6 +17,7 @@ import { DeviceSessions } from './ws-device/session.js';
 import { AdminSessions } from './ws-admin/session.js';
 import { AdminHub } from './ws-admin/hub.js';
 import { DeviceStatusRepository } from './devices/repo.js';
+import { DeviceHealthAlerts } from './devices/health-alerts.js';
 import { DeviceEvents } from './devices/events.js';
 import {makeDeviceEventProducer,type DeviceEventEnvelope} from './devices/event-producer.js';
 import { DeviceAdminRepository } from './devices/admin-repo.js';
@@ -146,6 +147,7 @@ if (stopping.aborted) return;
 const hub = new AdminHub(token => auth.authenticate(token));
 lifecycle.defer(() => hub.stop(), { critical: true });
 const notifyDevice = (id: string) => hub.publishLatest('device.updated', () => deviceAdmin.get(id));
+const healthAlerts = new DeviceHealthAlerts(pool);
 const notifyAlert = (id: string) => hub.publishLatest('alert.raised', async () => {
   const result = await pool.query(`SELECT id,type,subject_type AS "subjectType",subject_id AS "subjectId",severity,state,detail,
     floor(extract(epoch from first_at)*1000)::double precision AS "firstAt",
@@ -328,7 +330,18 @@ const presence=new TrackedInterval(10000,[
   async()=>{if (!stopping.aborted && await smsQueue.failRetired()) flushSmsTasks();},
   ()=>stopping.aborted ? undefined : activeSmsRateRuntime.refresh(),
   ()=>stopping.aborted ? undefined : maintenanceInvalidation.flush(),
-  async()=>{const s=await settings.get();const ids=await status.markOffline(s.offlineAfterSec);for(const id of ids)await notifyDevice(id);},
+  async () => {
+    if (stopping.aborted) return;
+    const { offlineAfterSec } = await settings.get();
+    assertAdmission();
+    const offline = await status.markOffline(offlineAfterSec);
+    const results = await Promise.allSettled([
+      healthAlerts.sweep(offlineAfterSec, assertAdmission, (type, data) => hub.publish(type, data)),
+      (async () => { for (const id of offline) { if (stopping.aborted) break; await notifyDevice(id); } })(),
+    ]);
+    const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'Device health tick failed');
+  },
 ],error=>app.log.error({err:error},'presence interval task failed'));
 transportLifecycle.defer(async()=>{
   const results=await Promise.allSettled([Promise.resolve().then(()=>activeSmsRateRuntime.stop()),Promise.resolve().then(()=>rejectWorker.stop()),Promise.resolve().then(()=>dispatcher.stop())]);

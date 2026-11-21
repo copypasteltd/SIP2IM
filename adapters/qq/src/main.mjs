@@ -4,6 +4,17 @@ import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
 const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const MAX_TIMESTAMP = 8_640_000_000_000_000;
+// Keep this standalone executable aligned with packages/protocol/src/errors.ts.
+const ACK_ERRORS = new Set([
+  'BAD_REQUEST', 'BAD_MESSAGE', 'IDEMPOTENCY_KEY_REQUIRED', 'UNAUTHORIZED', 'LOGIN_LOCKED',
+  'NOT_FOUND', 'CONFLICT', 'EVENT_TOO_LARGE', 'BINDING_INVALID', 'BINDING_EXPIRED', 'BINDING_RATE_LIMITED',
+  'DEVICE_OFFLINE', 'DEVICE_BUSY', 'DEVICE_DISABLED', 'CALL_NOT_ENABLED', 'CAPABILITY_UNSUPPORTED',
+  'SMS_PERMISSION_MISSING', 'CALL_PERMISSION_MISSING', 'SIM_NOT_FOUND', 'SIM_AMBIGUOUS',
+  'SIM_NOT_READY', 'NO_DEFAULT_DEVICE', 'NUMBER_INVALID', 'NUMBER_EMERGENCY', 'NUMBER_REGION',
+  'CHANNEL_UNAVAILABLE', 'CHANNEL_BUSY', 'NOT_PAIRED', 'PAIRING_INVALID', 'PAIRING_LOCKED',
+  'CALL_NOT_RINGING', 'CALL_NOT_ACTIVE', 'CALL_NOT_FOUND', 'TIMEOUT_UNKNOWN', 'INTERNAL',
+]);
 function id() {
   let n = (BigInt(Date.now()) << 80n) | BigInt('0x' + randomBytes(10).toString('hex'));
   let value = ''; for (let i = 0; i < 26; i++) { value = alphabet[Number(n & 31n)] + value; n >>= 5n; }
@@ -13,10 +24,11 @@ export function envelope(type, payload) { return { v: 1, type, id: id(), ts: Dat
 const validId = value => typeof value === 'string' && /^ipc_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(value);
 const validCall = value => typeof value === 'string' && /^cal_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(value);
 function valid(m) {
-  if (!m || m.v !== 1 || !validId(m.id) || !Number.isSafeInteger(m.ts) || m.ts < 0 || typeof m.payload !== 'object' || !m.payload || Array.isArray(m.payload)) return false;
+  if (!m || m.v !== 1 || !validId(m.id) || !Number.isInteger(m.ts) || m.ts < 0 || m.ts > MAX_TIMESTAMP || typeof m.payload !== 'object' || !m.payload || Array.isArray(m.payload)) return false;
   const p = m.payload;
   switch (m.type) {
-    case 'ack': return validId(p.refId) && typeof p.ok === 'boolean' && (p.error === null || typeof p.error === 'string');
+    // The shared ACK schema accepts an opaque string; only an exact pending ID selects an operation.
+    case 'ack': return typeof p.refId === 'string' && (p.ok === true ? p.error === null : p.ok === false && ACK_ERRORS.has(p.error));
     case 'account.login': case 'account.logout': return true;
     case 'account.login.submit': return ['qr','phone','code','password'].includes(p.step) && typeof p.value === 'string';
     case 'message.send': return typeof p.userId === 'string' && typeof p.text === 'string';

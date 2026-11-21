@@ -1,10 +1,29 @@
-import {cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
 import {Link,MemoryRouter,Route,Routes} from 'react-router-dom';
 import {afterEach,expect,it,vi} from 'vitest';
 import {RecordsPage} from './records';
 import i18n from '../../i18n';
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+it('reads back a new health alert through polling when realtime delivery is absent',async()=>{
+ await i18n.changeLanguage('en');
+ vi.useFakeTimers();
+ try {
+  const response=vi.fn(async()=>new Response(JSON.stringify({data:response.mock.calls.length===1?[]:[{
+   id:'alr-health',type:'sim_not_ready',state:'open',subjectId:'sim-fixture',severity:'warning',lastAt:100,
+  }],nextCursor:null}),{status:200}));
+  vi.stubGlobal('fetch',response);
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  render(<QueryClientProvider client={client}><RecordsPage kind="alerts"/></QueryClientProvider>);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(25);});
+  expect(response).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('heading',{name:'SIM is not ready'})).not.toBeInTheDocument();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30_050);});
+  expect(response).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('heading',{name:'SIM is not ready'})).toBeInTheDocument();
+ } finally { cleanup();vi.useRealTimers(); }
+});
+
 it('requests alerts with only the supported state filter',async()=>{
  await i18n.changeLanguage('en');
  const fetchMock=vi.fn().mockImplementation((url:string)=>{

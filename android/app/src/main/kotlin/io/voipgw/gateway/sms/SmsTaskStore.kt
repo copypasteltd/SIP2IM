@@ -7,7 +7,6 @@ import io.voipgw.gateway.core.BindingConnection
 import io.voipgw.gateway.core.Outbox
 import io.voipgw.gateway.core.OutboxWake
 import io.voipgw.protocol.Identifiers
-import io.voipgw.protocol.SmsReceiptState
 import org.json.JSONObject
 
 /** All command, task, part and result-event changes share the outbox transaction. */
@@ -120,37 +119,36 @@ internal class SmsTaskStore(context: Context) {
 
     private fun wakeOutbox() { try { OutboxWake.notifyCommitted() } catch (_: Exception) { /* Durable event remains queued. */ } }
 
-    /** First callback wins; aggregate transition and outbox insertion commit together. */
-    fun recordPart(taskId: String, index: Int, delivery: Boolean, success: Boolean) {
+    // 'state' remains the admission marker; 'emitted' tracks the last published result.
+    private val claimedScope = "task_id = ? AND binding_id = ? AND connection_id = ? AND state = 'unknown'"
+
+    /** Keep late evidence for the original durable claimant, not the currently open connection. */
+    fun recordPart(receipt: SmsSendAttempt.Receipt, incoming: SmsPartEvidence) {
+        val (attempt, index) = receipt
+        val scope = arrayOf(attempt.taskId, attempt.bindingId, attempt.connectionId)
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
-            val column = if (delivery) "delivered" else "sent"
-            val changed = db.update("sms_part", ContentValues().apply { put(column, if (success) 1 else 0) }, "task_id = ? AND part_index = ? AND $column IS NULL", arrayOf(taskId, index.toString()))
-            if (changed == 1) {
-                val sent = mutableListOf<Boolean?>(); val delivered = mutableListOf<Boolean?>()
-                db.query("sms_part", arrayOf("sent", "delivered"), "task_id = ?", arrayOf(taskId), null, null, "part_index").use {
-                    while (it.moveToNext()) {
-                        sent.add(if (it.isNull(0)) null else it.getInt(0) == 1)
-                        delivered.add(if (it.isNull(1)) null else it.getInt(1) == 1)
-                    }
-                }
-                val outcome = SmsReceiptState.aggregate(sent, delivered)
-                val (previous, bindingId) = db.query("sms_task", arrayOf("emitted", "binding_id"), "task_id = ?", arrayOf(taskId), null, null, null).use {
-                    if (it.moveToFirst()) it.getString(0) to it.getString(1) else return
-                }
-                val transitions = SmsReceiptState.transitions(previous, outcome)
-                if (transitions.isNotEmpty()) {
-                    for (transition in transitions) {
-                        val now = System.currentTimeMillis()
-                        val payload = JSONObject().put("taskId", taskId).put("state", transition).put("errorCode", if (transition == "failed") "SMS_SEND_FAILED" else JSONObject.NULL).toString()
-                        insertResult(db, payload, now, bindingId)
-                    }
-                    db.update("sms_task", ContentValues().apply { put("emitted", transitions.last()) }, "task_id = ?", arrayOf(taskId))
+            if (!db.query("sms_task", arrayOf("task_id"), claimedScope, scope, null, null, null).use { it.moveToFirst() }) return
+            val parts = mutableMapOf<Int, SmsPartEvidence?>()
+            db.query("sms_part", arrayOf("part_index", "sent"), "task_id = ?", arrayOf(attempt.taskId), null, null, null).use {
+                while (it.moveToNext()) parts[it.getInt(0)] = if (it.isNull(1)) null else SmsPartEvidence.fromStored(it.getInt(1))
+            }
+            if (!parts.containsKey(index)) return
+            SmsSendEvidence.apply(parts, index, incoming)?.let { update ->
+                check(db.update("sms_part", ContentValues().apply { put("sent", update.part.stored) },
+                    "task_id = ? AND part_index = ?", arrayOf(attempt.taskId, index.toString())) == 1)
+                update.newResult?.let { result ->
+                    val payload = JSONObject().put("taskId", attempt.taskId).put("state", result.state)
+                        .put("errorCode", result.errorCode ?: JSONObject.NULL).toString()
+                    insertResult(db, payload, System.currentTimeMillis(), attempt.bindingId)
+                    check(db.update("sms_task", ContentValues().apply { put("emitted", result.state) }, claimedScope, scope) == 1)
                 }
             }
             db.setTransactionSuccessful()
         } finally { db.endTransaction() }
+        // A valid duplicate may be a retry after the prior commit applied without confirmation.
+        wakeOutbox()
     }
     private fun insertResult(db: SQLiteDatabase, payload: String, now: Long, bindingId: String?) {
         db.insertOrThrow("outbox", null, ContentValues().apply {

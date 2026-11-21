@@ -76,7 +76,9 @@ class GatewayPauseSourceTest(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertIn('!fence.owns(connection) || paused() || !isReady(connection)', fence)
         snapshot = source.partition('private fun refreshStatus(')[2].partition('private fun handleProbe(')[0]
-        self.assertIn('SimSnapshot.observe(this) ?: return false', snapshot)
+        self.assertIn('SimSnapshot.observe(this) ?: JSONArray()', snapshot)
+        self.assertIn('.put("simsAuthoritative", false)', snapshot)
+        self.assertLess(snapshot.index('val permissions = JSONArray()'), snapshot.index('ws.send(frame.toString())'))
         self.assertIn('check(ws.send(frame.toString()))', snapshot)
 
     def test_only_queued_tasks_of_current_open_scope_are_claimed_or_failed(self):

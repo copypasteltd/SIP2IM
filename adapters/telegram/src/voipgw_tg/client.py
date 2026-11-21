@@ -13,16 +13,42 @@ Handler = Callable[[str, dict[str, Any]], Awaitable[tuple[bool, str | None]]]
 _ID = re.compile(r"^ipc_[0-7][0-9A-HJKMNP-TV-Z]{25}$")
 _HANDLER_WRITER: ContextVar[Any] = ContextVar('handler_writer', default=None)
 _CALL_ID = re.compile(r"^cal_[0-7][0-9A-HJKMNP-TV-Z]{25}$")
+_MAX_TIMESTAMP = 8_640_000_000_000_000
+# Keep the standalone Python reader aligned with packages/protocol/src/errors.ts.
+_ACK_ERRORS = frozenset({
+    'BAD_REQUEST', 'BAD_MESSAGE', 'IDEMPOTENCY_KEY_REQUIRED', 'UNAUTHORIZED', 'LOGIN_LOCKED',
+    'NOT_FOUND', 'CONFLICT', 'EVENT_TOO_LARGE', 'BINDING_INVALID', 'BINDING_EXPIRED', 'BINDING_RATE_LIMITED',
+    'DEVICE_OFFLINE', 'DEVICE_BUSY', 'DEVICE_DISABLED', 'CALL_NOT_ENABLED', 'CAPABILITY_UNSUPPORTED',
+    'SMS_PERMISSION_MISSING', 'CALL_PERMISSION_MISSING', 'SIM_NOT_FOUND', 'SIM_AMBIGUOUS',
+    'SIM_NOT_READY', 'NO_DEFAULT_DEVICE', 'NUMBER_INVALID', 'NUMBER_EMERGENCY', 'NUMBER_REGION',
+    'CHANNEL_UNAVAILABLE', 'CHANNEL_BUSY', 'NOT_PAIRED', 'PAIRING_INVALID', 'PAIRING_LOCKED',
+    'CALL_NOT_RINGING', 'CALL_NOT_ACTIVE', 'CALL_NOT_FOUND', 'TIMEOUT_UNKNOWN', 'INTERNAL',
+})
+
+
+def _valid_timestamp(value: Any) -> bool:
+    # Like the TS parser, accept an integer-valued JSON number, not a boolean or string.
+    return type(value) in (int, float) and 0 <= value <= _MAX_TIMESTAMP and value == int(value)
+
+
+def _reject_json_constant(_: str) -> None:
+    raise ValueError('invalid JSON constant')
 
 
 def validate(message: Any) -> bool:
     if not isinstance(message, dict) or type(message.get('v')) is not int or message.get('v') != 1 or not isinstance(message.get('type'), str): return False
     if not isinstance(message.get('id'), str) or not _ID.fullmatch(message['id']): return False
-    if type(message.get('ts')) is not int or message['ts'] < 0 or not isinstance(message.get('payload'), dict): return False
+    if not _valid_timestamp(message.get('ts')) or not isinstance(message.get('payload'), dict): return False
     p = message['payload']
     kind = message['type']
     if kind == 'ack':
-        return (isinstance(p.get('refId'), str) and bool(_ID.fullmatch(p['refId'])) and type(p.get('ok')) is bool and 'error' in p and (p['error'] is None or isinstance(p['error'], str)))
+        # Only the exact pending reference on this connection can settle a send.
+        if not isinstance(p.get('refId'), str) or 'error' not in p:
+            return False
+        error = p['error']
+        if p.get('ok') is True:
+            return error is None
+        return p.get('ok') is False and isinstance(error, str) and error in _ACK_ERRORS
     if kind in ('account.login', 'account.logout'): return True
     if kind == 'account.login.submit': return p.get('step') in ('qr', 'phone', 'code', 'password') and isinstance(p.get('value'), str)
     if kind == 'message.send': return isinstance(p.get('userId'), str) and isinstance(p.get('text'), str)
@@ -41,7 +67,7 @@ class AdapterClient:
         self.startup_provider = None
         self.handler = handler
         self.ack_timeout = ack_timeout
-        self.pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self.pending: dict[str, tuple[asyncio.StreamWriter, asyncio.Future[dict[str, Any]]]] = {}
         self.recent: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.writer: asyncio.StreamWriter | None = None
         self.inflight: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -52,13 +78,16 @@ class AdapterClient:
         writer = _HANDLER_WRITER.get() or self.writer
         if writer is None or writer is not self.writer: raise ConnectionError('not connected')
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self.pending[message['id']] = future
+        msg_id = message['id']
+        entry = (writer, future)
+        self.pending[msg_id] = entry
         try:
             writer.write(encode_control(message))
             await writer.drain()
             return await asyncio.wait_for(future, self.ack_timeout)
         finally:
-            self.pending.pop(message['id'], None)
+            if self.pending.get(msg_id) is entry:
+                del self.pending[msg_id]
 
     async def _receive(self, reader: asyncio.StreamReader) -> None:
         writer = self.writer
@@ -67,17 +96,22 @@ class AdapterClient:
             length = struct.unpack('>I', await reader.readexactly(4))[0]
             if length < 1 or length > MAX_FRAME: raise ValueError('invalid frame length')
             frame = await reader.readexactly(length)
+            if writer is not self.writer: raise ConnectionError('connection replaced')
             if frame[0] != 1: raise ValueError('audio unsupported')
-            try: message = json.loads(frame[1:].decode('utf-8'))
-            except (UnicodeDecodeError, ValueError): raise ValueError('invalid control JSON') from None
+            # Match the shared fatal UTF-8 decoder (including its leading BOM handling).
+            try: message = json.loads(frame[1:].decode('utf-8-sig'), parse_constant=_reject_json_constant)
+            except ValueError: raise ValueError('invalid control JSON') from None
             if not validate(message):
                 if isinstance(message, dict) and message.get('type') != 'ack' and isinstance(message.get('id'), str) and _ID.fullmatch(message['id']):
                     await self._write(envelope('ack', {'refId': message['id'], 'ok': False, 'error': 'BAD_MESSAGE'}), writer)
                 else: raise ValueError('invalid envelope or ack')
                 continue
             if message['type'] == 'ack':
-                future = self.pending.get(message['payload']['refId'])
-                if future and not future.done(): future.set_result(message['payload'])
+                entry = self.pending.get(message['payload']['refId'])
+                if entry is not None:
+                    owner, future = entry
+                    if owner is writer and not future.done():
+                        future.set_result(message['payload'])
                 continue
             if len(self.dispatches) >= 500:
                 raise ConnectionError('too many pending commands')
@@ -136,10 +170,12 @@ class AdapterClient:
         finally:
             receiver.cancel()
             await asyncio.gather(receiver, return_exceptions=True)
-            for future in self.pending.values():
-                if not future.done(): future.set_exception(ConnectionError('disconnected; outcome unknown'))
-            self.pending.clear()
-            self.writer = None
+            for msg_id, (owner, future) in list(self.pending.items()):
+                if owner is writer:
+                    del self.pending[msg_id]
+                    if not future.done(): future.set_exception(ConnectionError('disconnected; outcome unknown'))
+            if self.writer is writer:
+                self.writer = None
             writer.close()
             await writer.wait_closed()
 

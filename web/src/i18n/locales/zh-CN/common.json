@@ -434,6 +434,12 @@
       "unknown": "未知"
     }
   },
+  "alertType": {
+    "device_offline": "设备已离线",
+    "shizuku_stopped": "Shizuku 不可用",
+    "sim_not_ready": "SIM 未就绪",
+    "sms_permission_missing": "缺少短信权限"
+  },
   "records": {
     "kind": "类型",
     "kindFilter": "命令类型",

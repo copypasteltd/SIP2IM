@@ -24,7 +24,16 @@ it('moves aged acceptance to unknown, replays confirmed device results and keeps
   if (sql.startsWith('SELECT t.id')) return { rows: [{ id: 'task' }, { id: 'changed' }], rowCount: 2 };
   if (sql.startsWith("UPDATE sms_task SET state='unknown',error_code=NULL")) return { rows: [], rowCount: params?.[0] === 'task' ? 1 : 0 };
   if (sql.startsWith('SELECT e.payload')) return { rows: [{ payload: { state: 'sent', errorCode: null } }], rowCount: 1 };
-  return { rows: [], rowCount: 1 };
+  if (sql.includes("SET state='unknown',error_code='SMS_RESULT_CONFLICT'")) {
+   expect(params).toEqual(['task', true, false, false]);
+   return { rows: [], rowCount: 0 };
+  }
+  if (sql.startsWith('UPDATE sms_task SET state=$2')) {
+   expect(params).toEqual(['task', 'sent', null]);
+   return { rows: [], rowCount: 1 };
+  }
+  if (sql.startsWith('INSERT INTO sms_maintenance_admin_invalidation')) return { rows: [], rowCount: 1 };
+  throw new Error('Unexpected SQL in accepted-task fixture: ' + sql);
  });
  const repo = new SmsQueueRepository({ connect: async () => ({ query, release() {} }) } as unknown as pg.Pool);
  expect(await repo.settleUnconfirmed()).toBe(1);

@@ -107,7 +107,7 @@ export function seedDemo(at) {
         deviceId: null, cancelledAt: null, protocolVersion: null, teardownPending: false },
     ],
     alerts: [
-      { id: fixtureId('alt', 1), type: 'device.offline', subjectType: 'device', subjectId: devices[2].id, severity: 'warning', state: 'open', firstAt: at - 182 * minute, lastAt: at - 182 * minute },
+      { id: fixtureId('alr', 1), type: 'device_offline', subjectType: 'device', subjectId: devices[2].id, severity: 'warning', state: 'open', firstAt: at - 182 * minute, lastAt: at - 182 * minute, detail: {}, pushedAt: null, resolvedAt: null },
     ],
     commands: [
       { id: fixtureId('cmd', 1), platform: 'qq', kind: 'sms', state: 'completed', fromSimId: devices[0].sims[0].id,

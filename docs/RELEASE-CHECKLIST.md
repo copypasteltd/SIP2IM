@@ -52,9 +52,9 @@ python -B -m unittest discover -s tools -p test_sms_intent_model.py -v
 
 ### Demo capture / 演示录制
 
-For an authorized capture, use a fresh synthetic demo on port `41730`, a same-origin Web build, the installed local `ws` package, native Chrome and FFmpeg. Run the capture from the repository root with the Chrome executable and a new project-relative directory. Compare the captured states with the expected dashboard, binding cancellation and simulated send before replacing published files. [Capture script](../tools/demo/capture.mjs) · [Demo commands](../README.md#quick-demo)
+For an authorized capture, use a fresh synthetic demo on port `41730`, a same-origin Web build, the installed local `ws` package, native Chrome and FFmpeg. Run the capture from the repository root with the Chrome executable and a new project-relative directory. Compare the captured states with the expected dashboard, device alert, binding cancellation and simulated send before replacing published files. [Capture script](../tools/demo/capture.mjs) · [Demo commands](../README.md#quick-demo)
 
-经授权录制时，使用 `41730` 端口上新启动的合成演示、同源 Web 构建、本地 `ws` 包、原生 Chrome 和 FFmpeg。在仓库根目录向录制脚本传入 Chrome 程序路径和新的仓库相对目录。检查仪表盘、绑定取消和模拟发送的结果后，再更新发布素材。[录制脚本](../tools/demo/capture.mjs) · [演示命令](../README.md#快速演示)
+经授权录制时，使用 `41730` 端口上新启动的合成演示、同源 Web 构建、本地 `ws` 包、原生 Chrome 和 FFmpeg。在仓库根目录向录制脚本传入 Chrome 程序路径和新的仓库相对目录。检查仪表盘、设备告警、绑定取消和模拟发送的结果后，再更新发布素材。[录制脚本](../tools/demo/capture.mjs) · [演示命令](../README.md#快速演示)
 
 ```sh
 node tools/demo/capture.mjs "path/to/chrome" docs/media-review
@@ -62,9 +62,9 @@ node tools/demo/capture.mjs "path/to/chrome" docs/media-review
 
 ### Documentation check / 文档检查
 
-From the repository root, run `python -B -m doctest docs/RELEASE-CHECKLIST.md`. This checks both language headings, plain relative Markdown links, heading fragments and embedded NUL bytes in the seven primary documents, plus the five demo media links in each README language. Media playback and external URLs are separate checks.
+From the repository root, run `python -B -m doctest docs/RELEASE-CHECKLIST.md`. This checks both language headings, plain relative Markdown links, heading fragments and embedded NUL bytes in the eight primary documents, plus the six demo media links in each README language. Media playback and external URLs are separate checks.
 
-在仓库根目录运行 `python -B -m doctest docs/RELEASE-CHECKLIST.md`，检查七份主要文档的双语标题、相对链接、标题锚点与 NUL 字符，并核对首页每种语言所列的五个演示素材。媒体播放和外部 URL 单独核验。
+在仓库根目录运行 `python -B -m doctest docs/RELEASE-CHECKLIST.md`，检查八份主要文档的双语标题、相对链接、标题锚点与 NUL 字符，并核对首页每种语言所列的六个演示素材。媒体播放和外部 URL 单独核验。
 
 ```pycon
 >>> import re
@@ -72,7 +72,7 @@ From the repository root, run `python -B -m doctest docs/RELEASE-CHECKLIST.md`. 
 >>> from urllib.parse import unquote, urlsplit
 >>> root = Path.cwd().resolve()
 >>> docs = ("README.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md",
-...         "docs/IMPLEMENTATION.md", "docs/USAGE.md", "docs/RELEASE-CHECKLIST.md")
+...         "docs/IMPLEMENTATION.md", "docs/USAGE.md", "docs/VERIFICATION.md", "docs/RELEASE-CHECKLIST.md")
 >>> link_pattern = re.compile(r"\[[^]\n]+\]\(([^()\n]+)\)")
 >>> heading_pattern = re.compile(r"^#{1,6} (.+)$", re.M)
 >>> def slug(heading):
@@ -100,7 +100,7 @@ From the repository root, run `python -B -m doctest docs/RELEASE-CHECKLIST.md`. 
 >>> readme = (root / "README.md").read_text(encoding="utf-8")
 >>> chinese, english = readme.split("\n## English\n", 1)
 >>> media = {"docs/media/" + name for name in
-...          ("dashboard.png", "bindings.png", "sms.png", "walkthrough.mp4", "walkthrough.gif")}
+...          ("dashboard.png", "alerts.png", "bindings.png", "sms.png", "walkthrough.mp4", "walkthrough.gif")}
 >>> all(media.issubset(link_pattern.findall(section)) for section in (chinese, english))
 True
 

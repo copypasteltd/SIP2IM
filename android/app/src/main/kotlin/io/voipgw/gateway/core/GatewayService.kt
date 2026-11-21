@@ -14,6 +14,7 @@ import io.voipgw.gateway.R
 import io.voipgw.gateway.platform.ApiLevel
 import io.voipgw.gateway.platform.SimSnapshot
 import io.voipgw.gateway.platform.HeartbeatObservation
+import io.voipgw.gateway.sms.SmsSendAttempt
 import io.voipgw.gateway.sms.SmsTaskStore
 import io.voipgw.gateway.sms.SmsSender
 import android.Manifest
@@ -235,7 +236,7 @@ class GatewayService : Service() {
             require(ConfigUpdate.error(values) == null && values.containsKey("heartbeatSec") && values.containsKey("locale"))
             commandLedger.applyConfig(values.mapValues { it.value.toString() })
             lastSnapshotState = null; lastSnapshotAckAt = 0; pendingSnapshotId = null
-            // Missing SIM observation only suppresses the snapshot.
+            // SIM inventory and SMS permission observations are independent.
             refreshStatus(ws)
         }
         when (hello) {
@@ -250,7 +251,7 @@ class GatewayService : Service() {
     }
 
     private fun refreshStatus(ws: WebSocket): Boolean {
-        val sims = SimSnapshot.observe(this) ?: return false
+        val sims = SimSnapshot.observe(this) ?: JSONArray()
         val permissions = JSONArray()
         for (name in arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE))
             permissions.put(JSONObject().put("name", name).put("granted", checkCallingOrSelfPermission(name) == PackageManager.PERMISSION_GRANTED))
@@ -262,7 +263,7 @@ class GatewayService : Service() {
         for (name in arrayOf("smsSend", "smsReceive", "dial", "answer", "hangup", "dtmf", "downlink", "uplink", "earlyMedia"))
             probes.put(name, JSONObject().put("result", "untested").put("probedAt", System.currentTimeMillis()).put("detail", JSONObject.NULL))
         val id = Identifiers.event()
-        val frame = envelope("status.snapshot", JSONObject().put("sims", sims).put("capabilityLevel", ApiLevel.tier(Build.VERSION.SDK_INT)).put("probes", probes).put("permissions", permissions), id)
+        val frame = envelope("status.snapshot", JSONObject().put("sims", sims).put("simsAuthoritative", false).put("capabilityLevel", ApiLevel.tier(Build.VERSION.SDK_INT)).put("probes", probes).put("permissions", permissions), id)
         check(ws.send(frame.toString()))
         lastSnapshotState = key; pendingSnapshotId = id; pendingSnapshotAt = now
         return true
@@ -388,9 +389,8 @@ class GatewayService : Service() {
         val error = when {
             !valid -> "BAD_MESSAGE"
             getSharedPreferences("gateway", MODE_PRIVATE).getBoolean("paused", false) -> "DEVICE_DISABLED"
-            checkCallingOrSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED -> "SMS_PERMISSION_MISSING"
-            simReadiness(slot, sub) == SimReadiness.State.UNAVAILABLE -> "SIM_NOT_READY"
-            else -> null
+            else -> SmsSender(this).unavailable()?.queuedError
+                ?: if (simReadiness(slot, sub) == SimReadiness.State.UNAVAILABLE) "SIM_NOT_READY" else null
         }
         val ack = smsStore.reserve(active.connection, id, task, canonical, error) ?: return
         val response = JSONObject().put("refId", id).put("ok", ack.error == null).put("error", ack.error ?: JSONObject.NULL)
@@ -406,6 +406,12 @@ class GatewayService : Service() {
         try {
             val payload = JSONObject(raw)
             val sub = if (payload.isNull("subId")) null else payload.getInt("subId")
+            val sender = SmsSender(this)
+            // A definite SMS denial is not an indeterminate SIM observation.
+            sender.unavailable()?.queuedError?.let { error ->
+                withSmsAuthority(active) { smsStore.failQueued(active.connection, task, error) }
+                return
+            }
             when (simReadiness(payload.getInt("slot"), sub)) {
                 SimReadiness.State.UNKNOWN -> return
                 SimReadiness.State.UNAVAILABLE -> {
@@ -414,16 +420,15 @@ class GatewayService : Service() {
                 }
                 SimReadiness.State.READY -> Unit
             }
-            val result = SmsSender(this).submit(
-                task, payload.getString("to"), payload.getString("body"), sub,
+            val attempt = SmsSendAttempt(task, active.bindingId, active.connection.generation)
+            val result = sender.submit(
+                attempt, payload.getString("to"), payload.getString("body"), sub,
                 claim = { count -> claimSms(active, task, count) },
                 dispatch = { send -> withSmsAuthority(active, send) != null }
             )
             val error = when (result) {
-                SmsSender.Result.PERMISSION_MISSING -> "SMS_PERMISSION_MISSING"
-                SmsSender.Result.SUBSCRIPTION_UNSUPPORTED -> "SIM_NOT_READY"
-                SmsSender.Result.PREPARATION_FAILED -> "INTERNAL"
                 SmsSender.Result.NOT_SUBMITTED, SmsSender.Result.SUBMITTED, SmsSender.Result.UNKNOWN -> return
+                else -> checkNotNull(result.queuedError)
             }
             withSmsAuthority(active) { smsStore.failQueued(active.connection, task, error) }
         } catch (_: Exception) {
