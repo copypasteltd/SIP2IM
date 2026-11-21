@@ -96,6 +96,7 @@ Core 从接管 `/ws/admin` 的 WebSocket 起，在单调时钟上确定固定 5 
 - 管理广播独立于报告处理：每平台一个在途通知任务，频道、告警、登录步骤各一个最新提示槽。提示可能合并或丢失，旧连接或已失效的挑战不会在发送前仍通过校验。关停冻结新通知并等待已开始的任务。通过管理接口重新读取状态和操作记录；错过的步骤可手动只读恢复。[运行时](../core/src/channels/adapter-runtime.ts) · [恢复边界](platform-login-recovery.md)
 
 - 错过提示时，Web 提供明确的只读操作。Core 只在没有本地操作与读回重叠、没有持久阻断记录、原管理员会话复核通过且挑战仍一致时返回当前步骤。空值不表示登录结果。Web 在当前管理会话、连接与平台观测仍有效时采用结果，读回和提示更换均清空输入。提交必须带 Core 生成的原挑战 ID；同名新提示、连接更换或已有发送会让旧标识失效。此标识只在 Core 与管理端内存传递，不进入适配器 IPC，不是账号控制命令的幂等键或管理员凭据。
+- 账号命令从获准的本地 IPC 写入开始计时：10 秒截止前接纳正常 ACK；达到截止后最多再保留 30 秒存证窗口，起点包含、终点不包含。两段共用单调时钟；回调提前只安排剩余时间，延迟也不移后截止。断开或换代丢弃尚未接纳的证据，已接纳的存证写入仍会排空。匹配的迟到正 ACK 只绑定原平台与持久操作，不改变原 HTTP 504，也不自动释放；首个匹配的迟到负 ACK 消耗机会但不存证。 [适配器会话](../core/src/channels/adapter-manager.ts) · [恢复边界](platform-login-recovery.md)
 
 ### 异常短信托管
 
@@ -211,6 +212,7 @@ Each attempt has separate ten-second windows for WebSocket open and the first `p
 - Admin broadcasts run separately: one in-flight notification per platform and a latest slot each for channel, alert, and login-step hints. Hints can be coalesced or missed. Stale generations or retired prompts are filtered at send time. Shutdown freezes notification admission and drains work already started. Read back state and operations separately; a missed prompt can be read back explicitly. [Runtime](../core/src/channels/adapter-runtime.ts) · [Recovery boundaries](platform-login-recovery.md)
 
 - Web offers an explicit read-only action for missed prompts. Core returns a step only if it still matches the challenge observed before the durable read, no local operation overlaps the read or the authorization recheck, no durable operation blocks it, and the original administrator session still authorizes the request. Null does not settle the sign-in outcome. Web discards results that outlive the current admin session, socket, or platform observation and clears typed values on readback and prompt replacement. A submit must carry the original Core-issued challenge ID. It stays in the management layer, not the adapter IPC payload, and is neither an idempotency key nor an administrator credential.
+- A ten-second monotonic ACK window starts at the admitted local IPC write. The evidence window begins at that cutoff and ends 30 seconds later, exclusive. Early timers rearm for the remainder; delayed timers do not move either cutoff. Disconnect or replacement discards evidence not yet admitted, but admitted writes still drain. A late positive ACK binds to the original platform and durable operation; it neither changes the original HTTP 504 nor releases the operation automatically. The first matching late NACK consumes the opportunity without recording evidence. [Adapter sessions](../core/src/channels/adapter-manager.ts) · [Recovery boundaries](platform-login-recovery.md)
 
 ### Exceptional SMS custody
 

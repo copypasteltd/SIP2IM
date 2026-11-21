@@ -175,9 +175,9 @@ function deferred<T=void>() {
 }
 const afterReports=()=>new Promise<void>(resolve=>setImmediate(resolve));
 
-function syntheticControl() {
+function syntheticControl(now?: () => number) {
   const db=fakeDatabase(), repo=db.repo();
-  const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}},5_000);
+  const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}},5_000,now);
   const app=Fastify();
   const ops=new PersistentLoginOperations(manager,repo);
   registerChannelControlRoutes(app,ops,async t=>t==='test-token'?'admin1':null,{loginStep:p=>manager.loginStep(p)});
@@ -203,7 +203,8 @@ function syntheticControl() {
 
 it('connects authenticated readback and submission to a synthetic handshake and exact late ACK', async () => {
   vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
-  const {db,app,manager,headers,url,getStep,submit,attach,close}=syntheticControl();
+  let elapsed=0;
+  const {db,app,manager,headers,url,getStep,submit,attach,close}=syntheticControl(()=>elapsed);
   const {emit,prompt,socket,writes}=attach();
   const written=deferred();
   socket.write.mockImplementation(bytes=>{writes.push(bytes); if (writes.length===5) written.resolve();});
@@ -232,7 +233,7 @@ it('connects authenticated readback and submission to a synthetic handshake and 
     expect((await getStep()).json()).toEqual({data:null}); // pending with a new candidate
     const blocked=await submit(pendingPrompt.challengeId);
     expect(blocked.statusCode).toBe(504);expect(blocked.json().error.code).toBe('TIMEOUT_UNKNOWN');
-    await vi.advanceTimersByTimeAsync(5_000); expect((await response).statusCode).toBe(504);
+    elapsed=5000; await vi.advanceTimersByTimeAsync(5_000); expect((await response).statusCode).toBe(504);
     const current=(await app.inject({url:url('operation'),headers})).json().data as {operationId:string;status:string};
     expect(current.status).toBe('unknown');
     expect((await getStep()).json()).toEqual({data:null});
@@ -256,6 +257,58 @@ it('connects authenticated readback and submission to a synthetic handshake and 
     expect(databaseCalls).not.toContain(next.challengeId);
     expect(databaseCalls).not.toContain('fictional');
   } finally {await close();vi.useRealTimers();}
+});
+
+it.each([
+  { name:'timely positive', at:4999, ok:true, status:200, stored:'idle' },
+  { name:'timely negative', at:4999, ok:false, status:400, stored:'unknown' },
+  { name:'late evidence', at:5000, ok:true, status:504, stored:'terminal' },
+  { name:'expired evidence', at:35000, ok:true, status:504, stored:'unknown' },
+] as const)('keeps the same durable operation at the ACK boundaries ($name)',async({ at, ok, status, stored })=>{
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+  let elapsed=0;
+  const {db,ops,app,manager,headers,url,submit,attach,close}=syntheticControl(()=>elapsed);
+  const {emit,prompt,socket,writes}=attach();
+  const written=deferred();
+  socket.write.mockImplementation(bytes=>{
+    writes.push(bytes);
+    if(writes.length===5) written.resolve();
+  });
+  try {
+    prompt(4); await afterReports();
+    const challenge=manager.loginStep('telegram')!;
+    const response=submit(challenge.challengeId);
+    await written.promise;
+    const current=await ops.current('telegram');
+    expect(current.status).toBe('pending');
+    const operationId=current.operationId!;
+    expect(db.rows.get('telegram')).toEqual({token:operationId,outcome:null});
+    const command=new IpcDecoder().push(writes[4]!)[0]!;
+    if(command.type!==1) throw Error('expected control');
+    const refId=decodeAdapterJson(command.data).id;
+    elapsed=at; // Deliberately do not deliver any timer callback.
+    emit('ack',{refId,ok,error:ok?null:'BAD_MESSAGE'},5);
+    const result=await response;
+    expect(result.statusCode).toBe(status);
+    if(status===504)expect(result.json().error.code).toBe('TIMEOUT_UNKNOWN');
+    if(status===400)expect(result.json().error.code).toBe('BAD_MESSAGE');
+    await manager.drainEvidence();
+    const recovered=new PersistentLoginOperations(manager,db.repo());
+    expect(await recovered.current('telegram')).toEqual({status:stored,
+      operationId:stored==='idle'?null:operationId,outcome:stored==='terminal'?'ack':null});
+    expect(db.audit).toEqual(stored==='idle'?[{platform:'telegram',token:operationId,outcome:'ack',actor:'core'}]:[]);
+    expect(writes).toHaveLength(5);
+    if(stored!=='idle') {
+      const blocked=await app.inject({method:'POST',url:'/api/channels/telegram/login',headers,payload:{}});
+      expect(blocked.statusCode).toBe(504);
+      expect(blocked.json().error.code).toBe('TIMEOUT_UNKNOWN');
+      expect(writes).toHaveLength(5);
+      const released=await app.inject({method:'POST',url:url('operation/release'),headers,payload:{operationId,outcome:'ack'}});
+      expect(released.statusCode).toBe(stored==='terminal'?200:409);
+      expect(db.audit).toEqual(stored==='terminal'?[{platform:'telegram',token:operationId,outcome:'ack',actor:'admin1'}]:[]);
+      expect((await recovered.current('telegram')).status).toBe(stored==='terminal'?'idle':'unknown');
+    }
+  } finally {try {await close();} finally {vi.useRealTimers();}}
 });
 
 it('rejects well-formed wrong, replaced, cross-platform and retired IDs without a reservation or command write',async()=>{

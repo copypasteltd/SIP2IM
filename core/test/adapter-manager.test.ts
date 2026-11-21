@@ -18,6 +18,19 @@ const startup = (connection:ReturnType<AdapterManager['attach']>,platform:string
   connection.data(hello(platform)); connection.data(capabilities(login)); connection.data(account(state));
 };
 
+async function clockedAdapter() {
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']});
+  let elapsed = 0;
+  const manager = new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}},10_000,()=>elapsed);
+  const wire = socket(), link = manager.attach('telegram',wire);
+  startup(link,'telegram');
+  await new Promise<void>(done=>setImmediate(done));
+  const clock = (at:number) => { elapsed = at; };
+  const lastId = () => read(wire.write.mock.calls.at(-1)![0]).id;
+  const ack = (refId:string, ok=true) => link.data(frame('ack',{refId,ok,error:ok?null:'INTERNAL'},90));
+  return {manager,wire,link,clock,lastId,ack};
+}
+
 describe('adapter manager', () => {
   it('connects the listener raw transport to the manager without a real socket', async () => {
     class FakeSocket extends EventEmitter {
@@ -181,9 +194,164 @@ describe('adapter manager', () => {
     } finally { release(); manager.close(); }
   });
 
+  it.each([true,false])('settles an ACK just before the first cutoff without late evidence (ok=%s)',async ok=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const result=f.manager.prepareLogin('telegram','account.login',{})(evidence), refId=f.lastId();
+      vi.setSystemTime(Date.now()+86_400_000);
+      f.clock(9_999);
+      f.ack(id(91),false);
+      f.ack(refId,ok); f.ack(refId);
+      await expect(result).resolves.toEqual({refId,ok,error:ok?null:'INTERNAL'});
+      await f.manager.drainEvidence();
+      expect(evidence).not.toHaveBeenCalled();
+      expect(f.wire.write).toHaveBeenCalledTimes(4);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it.each([10_000,39_999,40_000,90_000])('uses the original first and late cutoffs without delivering a timer (%d ms)',async at=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const result=f.manager.prepareLogin('telegram','account.login',{})(evidence), refId=f.lastId();
+      const timeout=expect(result).rejects.toThrow('timeout; outcome unknown');
+      f.clock(at);
+      f.ack(refId); f.ack(refId);
+      await timeout;
+      await f.manager.drainEvidence();
+      expect(evidence).toHaveBeenCalledTimes(at<40_000?1:0);
+      if(at<40_000) expect(evidence).toHaveBeenCalledWith({refId,ok:true,error:null});
+      expect(vi.getTimerCount()).toBe(0);
+      expect(f.wire.write).toHaveBeenCalledTimes(4);
+      expect(f.wire.destroy).not.toHaveBeenCalled();
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it.each(['ACK','timer'] as const)('a matching late NACK consumes the slot without evidence (%s first)',async first=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const result=f.manager.prepareLogin('telegram','account.logout',{})(evidence), refId=f.lastId();
+      const timeout=expect(result).rejects.toThrow('timeout; outcome unknown');
+      f.clock(10_000);
+      if(first==='timer')vi.advanceTimersByTime(10_000);
+      f.ack(refId,false); f.ack(refId,true);
+      await timeout;
+      await f.manager.drainEvidence();
+      expect(evidence).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it.each([39_999,40_000])('does not extend late evidence when the first timer wakes at 34 seconds (%d ms)',async at=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const result=f.manager.prepareLogin('telegram','account.login',{})(evidence), refId=f.lastId();
+      const timeout=expect(result).rejects.toThrow('timeout; outcome unknown');
+      f.clock(34_000); vi.advanceTimersByTime(10_000); await timeout;
+      expect(vi.getTimerCount()).toBe(1);
+      f.clock(at); f.ack(refId);
+      await f.manager.drainEvidence();
+      expect(evidence).toHaveBeenCalledTimes(at<40_000?1:0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it('rearms only the unelapsed portion of either window after an early wake',async()=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const result=f.manager.prepareLogin('telegram','account.login',{})(evidence), refId=f.lastId();
+      const rejected=vi.fn(); void result.catch(rejected);
+      f.clock(9_250); await vi.advanceTimersByTimeAsync(10_000);
+      f.clock(9_999); await vi.advanceTimersByTimeAsync(749);
+      expect(rejected).not.toHaveBeenCalled();
+      f.clock(10_000); await vi.advanceTimersByTimeAsync(1);
+      expect(rejected).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(1);
+      f.clock(39_250); vi.advanceTimersByTime(30_000);
+      expect(vi.getTimerCount()).toBe(1);
+      f.clock(39_999); vi.advanceTimersByTime(749);
+      expect(vi.getTimerCount()).toBe(1);
+      f.clock(40_000); vi.advanceTimersByTime(1);
+      expect(vi.getTimerCount()).toBe(0);
+      f.ack(refId);
+      await f.manager.drainEvidence();
+      expect(evidence).not.toHaveBeenCalled();
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it('does not retain a slot when a delayed timeout runs after both windows have ended',async()=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const timeout=expect(f.manager.prepareLogin('telegram','account.login',{})(evidence)).rejects.toThrow('timeout; outcome unknown');
+      const refId=f.lastId();
+      f.clock(41_000); vi.advanceTimersByTime(10_000); await timeout;
+      expect(vi.getTimerCount()).toBe(0);
+      f.ack(refId);
+      await f.manager.drainEvidence();
+      expect(evidence).not.toHaveBeenCalled();
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it.each(['ack','close'] as const)('respects the first synchronous observation if the write then throws (%s)',async first=>{
+    const f=await clockedAdapter(), evidence=vi.fn(async()=>{});
+    try {
+      const prepared=f.manager.prepareLogin('telegram','account.login',{});
+      f.clock(60_000); // Time before local write does not consume the first window.
+      f.wire.write.mockImplementationOnce((bytes:Uint8Array)=>{
+        const refId=read(bytes).id;
+        f.clock(69_999);
+        if(first==='close')f.link.close();
+        f.ack(refId);
+        if(first==='ack')f.link.close();
+        throw Error('synthetic write failure');
+      });
+      const result=prepared(evidence);
+      if(first==='ack')await expect(result).resolves.toMatchObject({ok:true,error:null});
+      else await expect(result).rejects.toThrow('disconnected; outcome unknown');
+      expect(vi.getTimerCount()).toBe(0);
+      expect(f.wire.write).toHaveBeenCalledTimes(4);
+      expect(evidence).not.toHaveBeenCalled();
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it('rechecks the same session after fetching the transport write method',async()=>{
+    const f=await clockedAdapter();
+    const attemptedWrite=vi.fn();
+    try {
+      const prepared=f.manager.prepareLogin('telegram','account.login',{});
+      Object.defineProperty(f.wire,'write',{get(){ f.manager.stopAdmission(); return attemptedWrite; }});
+      expect(()=>prepared()).toThrow('CHANNEL_UNAVAILABLE');
+      expect(attemptedWrite).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { f.manager.close(); vi.useRealTimers(); }
+  });
+
+  it('drains late evidence admitted on a live session even when admission freezes and the link closes',async()=>{
+    const f=await clockedAdapter();
+    let finish!:()=>void;
+    const held = new Promise<void>(resolve=>{finish=resolve;});
+    const evidence=vi.fn(()=>held), drained=vi.fn();
+    try {
+      const timeout=expect(f.manager.prepareLogin('telegram','account.login',{})(evidence)).rejects.toThrow('timeout; outcome unknown');
+      const refId=f.lastId();
+      f.manager.stopAdmission();
+      f.clock(39_999); f.ack(refId);
+      f.clock(40_000); f.manager.close();
+      const draining=f.manager.drainEvidence().then(drained);
+      await timeout;
+      await Promise.resolve();
+      expect(evidence).toHaveBeenCalledExactlyOnceWith({refId,ok:true,error:null});
+      expect(drained).not.toHaveBeenCalled();
+      finish(); await draining;
+      expect(drained).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { finish(); f.manager.close(); vi.useRealTimers(); }
+  });
+
   it('accepts an exact late positive ACK once on the same live connection only', async () => {
     vi.useFakeTimers();
-    const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}},5);
+    let elapsed = 0;
+    const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}},5,()=>elapsed);
     try {
       const s=socket(), connection=manager.attach('telegram',s);
       startup(connection,'telegram'); await vi.advanceTimersByTimeAsync(0);
@@ -192,7 +360,7 @@ describe('adapter manager', () => {
       const rejected=expect(run(evidence)).rejects.toThrow('timeout; outcome unknown');
       expect(()=>run()).toThrow('CHANNEL_UNAVAILABLE');
       const command=read(s.write.mock.calls[3]![0]);
-      await vi.advanceTimersByTimeAsync(5); await rejected;
+      elapsed = 5; await vi.advanceTimersByTimeAsync(5); await rejected;
       connection.data(frame('ack',{refId:id(90),ok:true,error:null},10));
       const late=frame('ack',{refId:command.id,ok:true,error:null},11);
       connection.data(late); connection.data(late);
@@ -203,7 +371,7 @@ describe('adapter manager', () => {
       const dropped=vi.fn(async()=>{});
       const timeout=expect(manager.prepareLogin('telegram','account.logout',{})(dropped)).rejects.toThrow('timeout; outcome unknown');
       const oldCommand=read(s.write.mock.calls[4]![0]);
-      await vi.advanceTimersByTimeAsync(5); await timeout;
+      elapsed = 10; await vi.advanceTimersByTimeAsync(5); await timeout;
       const replacement=manager.attach('telegram',socket()); startup(replacement,'telegram'); await vi.advanceTimersByTimeAsync(0);
       const oldAck=frame('ack',{refId:oldCommand.id,ok:true,error:null},12);
       connection.data(oldAck); replacement.data(oldAck);

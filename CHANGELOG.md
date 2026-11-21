@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · Core 适配器账号命令回执截止
+
+- Core 从本地 IPC 写入开始计 10 秒。即使超时回调尚未执行，到达截止的 ACK 也只能按超时处理原请求。迟到存证窗口固定在首次截止后 30 秒结束，不因定时回调延迟而延长。 [适配器会话](core/src/channels/adapter-manager.ts)
+- 窗口内，同一有效连接上同一命令的首个匹配正 ACK 只为原操作存证，仍需管理员显式释放。迟到负 ACK 不存证；过期或换代后不接纳旧证据。不自动重发，报文和平台能力不变。 [平台登录恢复](docs/platform-login-recovery.md)
+- 合成演示、截图和录屏未改动，不展示真实平台登录或迟到回执。 [验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core 设备命令回执截止
 
 - 从开始向本地设备连接提交命令起，Core 用单调时钟计 10 秒。只有当前连接处理的匹配 ACK 且尚未截止，才结算该命令；即使超时回调尚未执行，到期的正向和负向 ACK 都按超时处理。旧计时器或发送清理不能影响替换后的命令。[设备命令](core/src/ws-device/commands.ts)
 - 生产短信由传输层统一裁定 ACK，不另设一条竞争的派发计时。无有效 ACK 的已申领尝试按原身份保留 `unknown`，不重发；独立、匹配的设备结果仍可用于对账。ACK 不证明短信送达或通话完成。[短信派发](core/src/sms/dispatch.ts)
-- Core、Web 和现有合成演示已复验；原素材未改动，不展示真实终端命令结果。[验证记录](docs/VERIFICATION.md)
+- Core、Web 和现有合成演示已复验；原素材未改动，不展示真实终端命令结果。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/7ff9726ff2a45572fe65ccce9da2014335fab85b/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Core 设备握手与接管截止
 
@@ -120,11 +126,17 @@
 
 ## English
 
+### 2026-11-21 · Core adapter account command ACK deadlines
+
+- Core allows ten seconds on a monotonic clock from the start of the local IPC write. A matching ACK processed at or after that deadline cannot change the original timeout outcome, even if the timer has not run. The evidence window ends 30 seconds after the original cutoff, not 30 seconds after the callback. [Adapter sessions](core/src/channels/adapter-manager.ts)
+- Within the evidence window, a positive first matching ACK on the same live link can only record evidence for the original operation. An administrator must still release it explicitly. A late NACK does not record evidence; expiry or link replacement ends admission. No automatic replay, wire change, or new capability. [Platform login recovery](docs/platform-login-recovery.md)
+- The demo, screenshots, and recording are unchanged and do not show live platform sign-in or late ACKs. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core device command ACK deadline
 
 - A ten-second monotonic window starts at local command submission to the device socket. Only a matching ACK processed on the current attachment before the deadline settles the command. At expiry, positive and negative ACKs both time out even if the watchdog has not run. A retired timer or send cleanup cannot settle a replacement attempt. [Device commands](core/src/ws-device/commands.ts)
 - Production SMS uses the transport ACK deadline instead of a competing dispatch timer. Without an eligible ACK, the original claimed attempt remains `unknown` and is not resent; a separate matching device result can still reconcile it. An ACK does not establish SMS delivery or call completion. [SMS dispatch](core/src/sms/dispatch.ts)
-- Core, Web, and the existing synthetic demo were rechecked. The retained media are unchanged and do not show real device command outcomes. [Verification](docs/VERIFICATION.md)
+- Core, Web, and the existing synthetic demo were rechecked. The retained media are unchanged and do not show real device command outcomes. [Verification](https://github.com/copypasteltd/SIP2IM/blob/7ff9726ff2a45572fe65ccce9da2014335fab85b/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Core device handshake and takeover deadline
 

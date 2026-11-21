@@ -9,6 +9,10 @@ export type AdapterLoginStep = AdapterLoginPrompt & { challengeId: string };
 export type AdapterAck = { refId: string; ok: boolean; error: string | null };
 export type AdapterAdmissionCode = 'CHANNEL_UNAVAILABLE' | 'CAPABILITY_UNSUPPORTED' | 'BAD_MESSAGE' | 'INTERNAL';
 type LateEvidence = (ack: AdapterAck) => Promise<void>;
+const LATE_ACK_WINDOW_MS = 30_000;
+type AckWindow = {deadline: number; timer: ReturnType<typeof setTimeout> | undefined};
+type PendingAck = AckWindow & {resolve: (ack: AdapterAck) => void; reject: (error: Error) => void; observeLate?: LateEvidence};
+type LateAck = AckWindow & {observe: LateEvidence};
 export type AdapterLoginDispatch = (observeLate?: LateEvidence) => Promise<AdapterAck>;
 export interface AdapterLoginTransport {
   /** Prepare without writing. The one-shot dispatch rechecks the same live adapter session. */
@@ -38,7 +42,8 @@ export class AdapterManager implements AdapterLoginTransport {
   private generations = new Map<AdapterPlatform, number>();
   private accepting = true;
   private readonly evidenceWrites = new Set<Promise<void>>();
-  constructor(private readonly deps: AdapterManagerDeps, private readonly timeoutMs = 10_000) {}
+  constructor(private readonly deps: AdapterManagerDeps, private readonly timeoutMs = 10_000,
+    private readonly now: () => number = () => performance.now()) {}
   attach(platform: AdapterPlatform, socket: AdapterSocket): { data(bytes: Uint8Array): void; close(): void } {
     if (!this.accepting) { socket.destroy(); throw new Error('manager closed'); }
     const generation = (this.generations.get(platform) ?? 0) + 1;
@@ -47,7 +52,8 @@ export class AdapterManager implements AdapterLoginTransport {
     this.sessions.delete(platform);
     previous?.stop();
     try { this.deps.onAttach?.(platform, generation); } catch (error) { socket.destroy(); throw error; }
-    const session = new Session(platform, generation, socket, this.deps, this.timeoutMs, () => {
+    const session: Session = new Session(platform, generation, socket, this.deps, this.timeoutMs, this.now,
+      (): boolean => this.accepting && this.sessions.get(platform) === session, () => {
       if (this.sessions.get(platform) !== session) return;
       this.sessions.delete(platform);
       void this.deps.onDisconnect(platform, generation).catch(() => {});
@@ -109,10 +115,11 @@ class Session {
   private controlReports = 0;
   private queue = Promise.resolve();
   private queued = 0;
-  private pending = new Map<string, { resolve: (ack: AdapterAck) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-  private readonly lateAcks = new Map<string, {observe: LateEvidence; timer: ReturnType<typeof setTimeout>}>();
+  private readonly pending = new Map<string, PendingAck>();
+  private readonly lateAcks = new Map<string, LateAck>();
   private seen = new Map<string, { digest: string; ack: AdapterAck }>();
-  constructor(private platform: AdapterPlatform, private generation: number, private socket: AdapterSocket, private deps: AdapterManagerDeps, private timeoutMs: number, private closed: () => void) {}
+  constructor(private platform: AdapterPlatform, private generation: number, private socket: AdapterSocket, private deps: AdapterManagerDeps, private timeoutMs: number,
+    private readonly now: () => number, private readonly admitsLogin: () => boolean, private closed: () => void) {}
   isReady(): boolean { return this.active && this.phase === startup.length; }
   loginStep(): AdapterLoginStep | null { return this.isReady() && this.controlReports === 0 && this.step ? { ...this.step } : null; }
   data(bytes: Uint8Array): void {
@@ -185,7 +192,7 @@ class Session {
     }
   }
   private assertLoginReady(): void {
-    if (!this.isReady() || this.controlReports !== 0) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+    if (!this.admitsLogin() || !this.isReady() || this.controlReports !== 0) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
     if (!this.loginSupported) throw new AdapterAdmissionRejected('CAPABILITY_UNSUPPORTED');
   }
   prepareLogin(type: AdapterLoginCommand, payload: unknown): AdapterLoginDispatch {
@@ -205,47 +212,90 @@ class Session {
     let bytes: Uint8Array;
     try { bytes = encodeIpcFrame({type:1,data:encodeAdapterJson({v:1,type,id,ts:Date.now(),payload:wirePayload})}); }
     catch { throw new AdapterAdmissionRejected('INTERNAL'); }
-    let used = false;
-    return observeLate => {
-      if (used) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+    const assertCurrent = () => {
       if (challengeId !== undefined && this.step?.challengeId !== challengeId) throw new AdapterAdmissionRejected('BAD_MESSAGE');
       this.assertLoginReady();
       if (this.controlRevision !== revision) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+    };
+    let used = false;
+    return observeLate => {
+      if (used) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+      assertCurrent();
       used = true;
-      // Once an attempt starts, the old prompt is no longer actionable. An accepted
-      // new login.step (or a fresh adapter handshake followed by one) can restore it.
+      let write: AdapterSocket['write'];
+      try { write = this.socket.write; }
+      catch { throw new AdapterAdmissionRejected('INTERNAL'); }
+      assertCurrent();
+      if (this.pending.has(id) || this.lateAcks.has(id)) throw new AdapterAdmissionRejected('INTERNAL');
+      // Only a newly accepted login.step can make the consumed prompt actionable again.
       this.step = null;
       this.controlRevision++;
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          this.pending.delete(id);
-          if (observeLate) this.rememberLateAck(id, observeLate);
-          reject(new Error('timeout; outcome unknown'));
-        }, this.timeoutMs);
-        this.pending.set(id, {resolve, reject, timer});
-        try { this.socket.write(bytes); } catch { clearTimeout(timer); this.pending.delete(id); reject(new Error('send failed; outcome unknown')); }
+        const entry: PendingAck = {resolve, reject, observeLate, deadline:this.now() + this.timeoutMs, timer:undefined};
+        this.pending.set(id, entry);
+        try { Reflect.apply(write, this.socket, [bytes]); }
+        catch {
+          if (this.take(this.pending, id, entry)) reject(new Error('send failed; outcome unknown'));
+          return;
+        }
+        // A synchronous ACK or close may already have consumed the entry.
+        this.watch(this.pending, id, entry, at => {
+          entry.reject(new Error('timeout; outcome unknown'));
+          const deadline = entry.deadline + LATE_ACK_WINDOW_MS;
+          if (this.active && entry.observeLate && at < deadline) this.rememberLateAck(id, entry.observeLate, deadline, at);
+        });
       });
     };
   }
-  private rememberLateAck(id: string, observe: LateEvidence): void {
+  private take<T extends AckWindow>(entries: Map<string, T>, id: string, entry: T): boolean {
+    if (entries.get(id) !== entry) return false;
+    entries.delete(id);
+    if (entry.timer !== undefined) clearTimeout(entry.timer);
+    entry.timer = undefined;
+    return true;
+  }
+  private watch<T extends AckWindow>(entries: Map<string,T>, id: string, entry: T, expired: (at:number)=>void, unref = false): void {
+    const check = () => {
+      if (entries.get(id) !== entry) return;
+      const at = this.now(), remaining = entry.deadline - at;
+      if (remaining <= 0) {
+        if (this.take(entries, id, entry)) expired(at);
+      } else {
+        entry.timer = setTimeout(check, Math.ceil(remaining));
+        if (unref) entry.timer.unref();
+      }
+    };
+    check();
+  }
+  private rememberLateAck(id: string, observe: LateEvidence, deadline: number, at: number): void {
+    if (this.lateAcks.size >= 128) {
+      for (const [key, entry] of this.lateAcks) {
+        if (entry.deadline <= at) this.take(this.lateAcks, key, entry);
+      }
+    }
     if (this.lateAcks.size >= 128) {
       const oldest = this.lateAcks.keys().next().value!;
-      clearTimeout(this.lateAcks.get(oldest)!.timer);
-      this.lateAcks.delete(oldest);
+      this.take(this.lateAcks, oldest, this.lateAcks.get(oldest)!);
     }
-    const timer = setTimeout(() => this.lateAcks.delete(id), 30_000);
-    timer.unref();
-    this.lateAcks.set(id, {observe, timer});
+    const entry: LateAck = {observe, deadline, timer:undefined};
+    this.lateAcks.set(id, entry);
+    this.watch(this.lateAcks, id, entry, () => {}, true);
   }
   private ack(ack: AdapterAck): void {
-    const entry = this.pending.get(ack.refId);
-    if (entry) {
-      clearTimeout(entry.timer); this.pending.delete(ack.refId); entry.resolve(ack); return;
+    if (!this.active) return;
+    const at = this.now(), id = ack.refId;
+    const entry = this.pending.get(id);
+    if (entry && this.take(this.pending, id, entry)) {
+      if (at < entry.deadline) entry.resolve(ack);
+      else {
+        // The first ACK itself can observe expiry before the timer runs.
+        entry.reject(new Error('timeout; outcome unknown'));
+        if (ack.ok && entry.observeLate && at < entry.deadline + LATE_ACK_WINDOW_MS) void entry.observeLate(ack);
+      }
+      return;
     }
-    const late = this.lateAcks.get(ack.refId);
-    if (!late) return;
-    clearTimeout(late.timer); this.lateAcks.delete(ack.refId);
-    if (ack.ok) void late.observe(ack);
+    const late = this.lateAcks.get(id);
+    if (late && this.take(this.lateAcks, id, late) && ack.ok && at < late.deadline) void late.observe(ack);
   }
   private writeAck(ack: AdapterAck): void {
     this.socket.write(encodeIpcFrame({type:1,data:encodeAdapterJson({v:1,type:'ack',id:'ipc_'+ulid(),ts:Date.now(),payload:ack})}));
@@ -254,10 +304,10 @@ class Session {
     if (!this.active) return;
     this.active = false;
     this.step = null;
-    for (const entry of this.pending.values()) { clearTimeout(entry.timer); entry.reject(new Error('disconnected; outcome unknown')); }
-    this.pending.clear();
-    for (const entry of this.lateAcks.values()) clearTimeout(entry.timer);
-    this.lateAcks.clear();
+    for (const [id, entry] of this.pending) {
+      if (this.take(this.pending, id, entry)) entry.reject(new Error('disconnected; outcome unknown'));
+    }
+    for (const [id, entry] of this.lateAcks) this.take(this.lateAcks, id, entry);
     try { this.socket.destroy(); } finally { this.closed(); }
   }
 }
