@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · 平台登录挑战绑定与只读恢复
+
+- 错过登录提示后，管理员可点击「读取当前登录步骤」；只发鉴权、禁止缓存的 GET，不重新触发登录或自动提交资料。结果为空或操作未结时不能据此判断登录成败。[恢复说明](docs/platform-login-recovery.md)
+- Core 为每个已接纳的新提示生成一次性挑战标识，提交必须匹配该平台、连接和当前挑战。同名步骤更换也会使旧资料失效。管理 API 需要同步升级；适配器 IPC 请求体不变。[Core 接口](core/src/channels/control-routes.ts) · [Web 控制](web/src/features/channels/channel-actions.tsx)
+- 演示读回返回空挑战，仍禁用平台登录、消息、配对启用和通话。既有实录不展示平台登录。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 平台适配器握手与管理通知
 
 - Core 将初始账号状态、有效登录能力和对应渠道告警写入同一事务。初始能力报告的 ACK 只确认内存暂存；最终状态的正向 ACK 才表示本次写入已确认。被替换或已断开的连接不再有写入资格；已发出而回执不明的提交不当作回滚。[渠道存储](core/src/channels/repo.ts) · [适配器运行时](core/src/channels/adapter-runtime.ts)
 - 管理通知与 IPC 回执分离。每平台最多一个发送任务和每类一个最新待处理提示；发送前复核连接代次或当前登录挑战。慢读回或推送失败不让已提交的报告收到失败 ACK。通知可以合并或丢失，不能当作账号结果。[管理广播](core/src/ws-admin/hub.ts) · [登录读回](docs/platform-login-recovery.md)
-- 不改变 IPC 格式，不启用平台消息、配对启用或通话。Web 演示和实录未变并已复验。[验证记录](docs/VERIFICATION.md)
+- 不改变 IPC 格式，不启用平台消息、配对启用或通话。Web 演示和实录未变并已复验。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/275c8c50dc06007dc04f34ee1a7c49da82891a75/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 浏览器挂断与音频背压
 
@@ -73,11 +79,17 @@
 
 ## English
 
+### 2026-11-21 · Bound login challenges and read-only recovery
+
+- An administrator who misses a prompt can select Read current login step. This sends an authenticated, no-store GET, not a new login or a submission. An empty readback does not settle the login outcome. [Recovery guide](docs/platform-login-recovery.md)
+- Core assigns an opaque ID to each newly accepted prompt. Submissions must match the platform, attachment, and current challenge; even a replacement with the same step name retires the older one. Upgrade Core and Web together for this management API change. Adapter IPC payloads are unchanged. [Core routes](core/src/channels/control-routes.ts) · [Web controls](web/src/features/channels/channel-actions.tsx)
+- The demo returns no challenge and keeps platform sign-in, messaging, new pairing, and calling disabled. The existing recording does not show a platform sign-in. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Adapter handshake and admin notifications
 
 - Core writes the initial account state, effective login capability, and applicable channel alert in one transaction. The initial capability ACK confirms in-memory staging only; the final positive state ACK follows confirmed persistence. Obsolete attachments lose write authority. An unconfirmed COMMIT is not treated as a rollback. [Channel repository](core/src/channels/repo.ts) · [Adapter runtime](core/src/channels/adapter-runtime.ts)
 - Admin notifications no longer gate IPC acknowledgements. Each platform has at most one notification in flight and a latest slot per kind. The sender rechecks attachment generation or current prompt before delivery. Slow or failed notification work does not turn a committed report into a negative ACK. These hints may be coalesced or missed. [Admin broadcast](core/src/ws-admin/hub.ts) · [Login readback](docs/platform-login-recovery.md)
-- This does not change the wire format or enable platform messaging, new pairing, or calling. Web, the demo, and the recording are unchanged and were rechecked. [Verification](docs/VERIFICATION.md)
+- This does not change the wire format or enable platform messaging, new pairing, or calling. Web, the demo, and the recording are unchanged and were rechecked. [Verification](https://github.com/copypasteltd/SIP2IM/blob/275c8c50dc06007dc04f34ee1a7c49da82891a75/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Browser hangup and audio backpressure
 

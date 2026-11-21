@@ -28,7 +28,7 @@ it('authenticates first, clears retired prompts, and refreshes on reconnect with
   const first = sockets[0];
   const staleMessage = first.onmessage!;
   const staleClose = first.onclose!;
-  const step = { platform: 'telegram', step: 'code', qrPngBase64: null, hint: null };
+  const step = { platform: 'telegram', challengeId: '00000000-0000-4000-8000-000000000001', step: 'code', qrPngBase64: null, hint: null };
   const store = useLoginSteps.getState();
   expect(first.url).not.toContain('fixture-token');
   first.onopen?.();
@@ -38,8 +38,10 @@ it('authenticates first, clears retired prompts, and refreshes on reconnect with
   const command = { kind: 'start' as const };
   store.begin('telegram', command);
   store.accept('telegram', command);
+  first.receive('channel.login.step', { ...step, challengeId: undefined });
+  expect(useLoginSteps.getState().steps.telegram).toBeUndefined();
   first.receive('channel.login.step', step);
-  expect(useLoginSteps.getState().steps.telegram?.step).toBe('code');
+  expect(useLoginSteps.getState().steps.telegram).toMatchObject({ step: 'code', challengeId: step.challengeId });
   first.close();
   expect(useLoginSteps.getState().steps.telegram).toBeUndefined();
   expect(useLoginSteps.getState().progress.telegram?.phase).toBe('missed');

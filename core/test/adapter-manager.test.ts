@@ -99,19 +99,58 @@ describe('adapter manager', () => {
     const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{}});
     const a=socket(), connection=manager.attach('telegram',a);
     startup(connection,'telegram','login_pending'); connection.data(step()); await tick();
-    expect(manager.loginStep('telegram')).toEqual({step:'code',qrPngBase64:null,hint:null});
-    expect(()=>manager.prepareLogin('telegram','account.login.submit',{step:'phone',value:'fake'})).toThrow('BAD_MESSAGE');
-    const prepared=manager.prepareLogin('telegram','account.login.submit',{step:'code',value:'fake'});
+    const current=manager.loginStep('telegram')!;
+    expect(current).toEqual({step:'code',qrPngBase64:null,hint:null,challengeId:expect.any(String)});
+    expect(()=>manager.prepareLogin('telegram','account.login.submit',{step:'phone',value:'fake',challengeId:current.challengeId})).toThrow('BAD_MESSAGE');
+    const prepared=manager.prepareLogin('telegram','account.login.submit',{step:'code',value:'fake',challengeId:current.challengeId});
     connection.data(account('logged_in',5,'changed'));
     expect(()=>prepared()).toThrow(AdapterAdmissionRejected);
     await tick(); expect(manager.loginStep('telegram')).toBeNull();
-    expect(()=>prepared()).toThrow('CHANNEL_UNAVAILABLE');
+    expect(()=>prepared()).toThrow('BAD_MESSAGE');
     expect(a.write).toHaveBeenCalledTimes(5);
     const again=manager.prepareLogin('telegram','account.logout',{});
     const b=socket(); startup(manager.attach('telegram',b),'telegram','login_pending'); await tick();
     expect(()=>again()).toThrow('CHANNEL_UNAVAILABLE');
     expect(manager.loginStep('telegram')).toBeNull(); expect(b.write).toHaveBeenCalledTimes(3);
     manager.close();
+  });
+
+  it('issues a fresh lowercase v4 ID per accepted step, not per duplicate ACK', async () => {
+    const onLoginStep=vi.fn();
+    const manager=new AdapterManager({onEvent:async()=>{},onDisconnect:async()=>{},onLoginStep});
+    try {
+      const s=socket(), first=manager.attach('qq',s);
+      startup(first,'qq','login_pending');
+      const original=step('code',4);
+      first.data(original); await tick();
+      const initial=manager.loginStep('qq')!;
+      const uuidV4=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      expect(initial.challengeId).toMatch(uuidV4);
+      first.data(original); await tick();
+      expect(manager.loginStep('qq')).toEqual(initial);
+      expect(read(s.write.mock.calls[4]![0]).payload).toEqual({refId:id(4),ok:true,error:null});
+      expect(onLoginStep).toHaveBeenCalledExactlyOnceWith('qq',initial,1,expect.any(Function));
+
+      first.data(step('code',5)); await tick();
+      const next=manager.loginStep('qq')!;
+      expect(next).toEqual({...initial,challengeId:expect.stringMatching(uuidV4)});
+      expect(next.challengeId).not.toBe(initial.challengeId);
+      first.data(original); await tick();
+      expect(manager.loginStep('qq')).toEqual(next);
+      expect(onLoginStep).toHaveBeenCalledTimes(2);
+      const prepared=manager.prepareLogin('qq','account.login.submit',{step:'code',value:'fake',challengeId:next.challengeId});
+
+      const s2=socket(), second=manager.attach('qq',s2);
+      expect(manager.loginStep('qq')).toBeNull();
+      startup(second,'qq','login_pending'); second.data(original); await tick();
+      const rotated=manager.loginStep('qq')!;
+      expect(rotated.challengeId).toMatch(uuidV4);
+      expect(new Set([initial.challengeId,next.challengeId,rotated.challengeId]).size).toBe(3);
+      expect(()=>prepared()).toThrow('BAD_MESSAGE');
+      expect(()=>manager.prepareLogin('qq','account.login.submit',{step:'code',value:'fake',challengeId:next.challengeId})).toThrow('BAD_MESSAGE');
+      expect(s2.write).toHaveBeenCalledTimes(4);
+      expect(onLoginStep).toHaveBeenLastCalledWith('qq',rotated,2,expect.any(Function));
+    } finally { manager.close(); }
   });
 
   it('does not wait for a prompt subscriber and retires its evidence when the same connection reports completion', async () => {

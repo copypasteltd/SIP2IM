@@ -113,9 +113,10 @@ describe('adapter integration',()=>{
     a.connection.data(state(null,3,'login_pending'));a.connection.data(frame('login.step',{step:'code',qrPngBase64:null,hint:'enter code'},4));
     a.connection.data(frame('message.received',{platformMessageId:'m',senderId:'u',senderName:null,chatType:'private',forwarded:false,isContact:true,text:'test',ts:1},5));await tick();
     expect(rows.qq).toMatchObject({state:'login_pending',selfId:null,capabilities:{login:true,sendMessage:false,receiveMessage:false,dial:false,receiveAudio:false,sendAudio:false,maxConcurrentCalls:0}});
-    expect(publish).toHaveBeenCalledWith('channel.login.step',{platform:'qq',step:'code',qrPngBase64:null,hint:'enter code'},expect.any(Function));
+    const challenge=runtime.manager.loginStep('qq')!;
+    expect(challenge).toEqual({step:'code',qrPngBase64:null,hint:'enter code',challengeId:expect.any(String)});
+    expect(publish).toHaveBeenCalledWith('channel.login.step',{platform:'qq',...challenge},expect.any(Function));
     expect(read(a.writes[4]!).payload).toEqual({refId:'ipc_'+String(5).padStart(26,'0'),ok:false,error:'CAPABILITY_UNSUPPORTED'});
-    expect(runtime.manager.loginStep('qq')).toEqual({step:'code',qrPngBase64:null,hint:'enter code'});
     a.connection.close();await tick();expect(rows.qq.state).toBe('offline');expect(runtime.manager.loginStep('qq')).toBeNull();await runtime.close();
   });
   it('separates startup reconciliation, attachment reset and observed disconnect',async()=>{
@@ -192,7 +193,7 @@ describe('adapter integration',()=>{
     try {
       expect(acks(client)).toEqual([1,2,3,4,5,6,7].map(positive));
       expect(runtime.manager.status('qq')).toBe('online');
-      expect(runtime.manager.loginStep('qq')).toEqual({step:'password',qrPngBase64:null,hint:null});
+      expect(runtime.manager.loginStep('qq')).toEqual({step:'password',qrPngBase64:null,hint:null,challengeId:expect.any(String)});
       expect(client.socket.destroy).not.toHaveBeenCalled();
       expect(publish).toHaveBeenCalled();
     } finally { await runtime.close(); }
@@ -218,27 +219,38 @@ describe('adapter integration',()=>{
     } finally { releaseRead.resolve(); await runtime.close(); }
   });
 
-  it('fences an in-flight login prompt on replacement and preserves ACK ordering',async()=>{
+  it.each(['new step','new generation'] as const)('fences an in-flight prompt after a %s and preserves ACK ordering',async change=>{
     const {runtime,publish,peer}=setup(); await runtime.start();
     const first=peer('qq');bootstrap(first,'qq',null,true,'login_pending');
     await tick(); publish.mockClear();
     const entered=deferred<void>(), send=deferred<void>();
-    const delivered:string[]=[];
+    const delivered:unknown[]=[];
+    let firstNotice=true;
     publish.mockImplementation(async(type,data,current)=>{
-      if(type==='channel.login.step') {
+      if(type!=='channel.login.step') return;
+      if(firstNotice) {
+        firstNotice=false;
         expect(acks(first)).toContainEqual(positive(4));
         entered.resolve(); await send.promise;
-        if(current()) delivered.push((data as {step:string}).step);
       }
+      if(current()) delivered.push(data);
     });
     first.connection.data(loginStep(4));
     try {
       await entered.promise;
-      const replacement=peer('qq');bootstrap(replacement,'qq','new'); await tick();
-      expect(acks(replacement)).toEqual([1,2,3].map(positive));
-      expect(runtime.manager.loginStep('qq')).toBeNull();
+      const original=runtime.manager.loginStep('qq')!;
+      const replacement=change==='new generation' ? peer('qq') : first;
+      if(replacement!==first) {
+        expect(runtime.manager.loginStep('qq')).toBeNull();
+        bootstrap(replacement,'qq','new',true,'login_pending');
+      }
+      const report=change==='new generation' ? 4 : 5;
+      replacement.connection.data(loginStep(report)); await tick();
+      expect(acks(replacement)).toContainEqual(positive(report));
+      const next=runtime.manager.loginStep('qq')!;
+      expect(next.challengeId).not.toBe(original.challengeId);
       send.resolve(); await tick();
-      expect(delivered).toEqual([]);
+      expect(delivered).toEqual([{platform:'qq',...next}]);
     } finally { send.resolve(); await runtime.close(); }
   });
 

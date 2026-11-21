@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { IpcDecoder, decodeAdapterJson, encodeAdapterJson, encodeIpcFrame } from '@voipgw/protocol';
 import { ulid } from 'ulid';
 
 export type AdapterPlatform = 'qq' | 'telegram';
 export type AdapterLoginCommand = 'account.login' | 'account.login.submit' | 'account.logout';
-export type AdapterLoginStep = { step: 'qr' | 'phone' | 'code' | 'password'; qrPngBase64: string | null; hint: string | null };
+type AdapterLoginPrompt = { step: 'qr' | 'phone' | 'code' | 'password'; qrPngBase64: string | null; hint: string | null };
+export type AdapterLoginStep = AdapterLoginPrompt & { challengeId: string };
 export type AdapterAck = { refId: string; ok: boolean; error: string | null };
 export type AdapterAdmissionCode = 'CHANNEL_UNAVAILABLE' | 'CAPABILITY_UNSUPPORTED' | 'BAD_MESSAGE' | 'INTERNAL';
 type LateEvidence = (ack: AdapterAck) => Promise<void>;
@@ -56,10 +57,13 @@ export class AdapterManager implements AdapterLoginTransport {
   }
   prepareLogin(platform: AdapterPlatform, type: AdapterLoginCommand, payload: unknown): AdapterLoginDispatch {
     const session = this.sessions.get(platform);
-    if (!this.accepting || !session) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+    if (!this.accepting) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+    const missingSession = type === 'account.login.submit' ? 'BAD_MESSAGE' : 'CHANNEL_UNAVAILABLE';
+    if (!session) throw new AdapterAdmissionRejected(missingSession);
     const dispatch = session.prepareLogin(type, payload);
     return observeLate => {
-      if (!this.accepting || this.sessions.get(platform) !== session) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+      if (!this.accepting) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+      if (this.sessions.get(platform) !== session) throw new AdapterAdmissionRejected(missingSession);
       return dispatch(observeLate && (ack => {
         const work = Promise.resolve().then(() => observeLate(ack)).catch(() => {});
         this.evidenceWrites.add(work);
@@ -154,7 +158,8 @@ class Session {
         if (next.state !== 'login_pending' || next.selfId !== this.account?.selfId || this.account?.state !== next.state) this.step = null;
         this.account = { state: next.state, selfId: next.selfId };
       } else if (message.type === 'login.step') {
-        this.step = prompt = message.payload as AdapterLoginStep;
+        // Exact duplicate frames return above; only a newly accepted report gets an ID.
+        this.step = prompt = { ...(message.payload as AdapterLoginPrompt), challengeId: randomUUID() };
       }
       if (controlReport || prompt) this.controlRevision++;
       ack = { refId: message.id, ok: true, error: null };
@@ -184,20 +189,28 @@ class Session {
     if (!this.loginSupported) throw new AdapterAdmissionRejected('CAPABILITY_UNSUPPORTED');
   }
   prepareLogin(type: AdapterLoginCommand, payload: unknown): AdapterLoginDispatch {
-    this.assertLoginReady();
+    let wirePayload = payload;
+    let challengeId: string | undefined;
     if (type === 'account.login.submit') {
-      const input = payload as Partial<{step: unknown; value: unknown}> | null | undefined;
-      if (!this.step || input?.step !== this.step.step || typeof input.value !== 'string' || input.value.length === 0) throw new AdapterAdmissionRejected('BAD_MESSAGE');
+      const input = payload as Partial<{step: unknown; value: unknown; challengeId: unknown}> | null | undefined;
+      const challenge = this.step;
+      if (!challenge || input?.step !== challenge.step || input.challengeId !== challenge.challengeId ||
+          typeof input.value !== 'string' || input.value.length === 0) throw new AdapterAdmissionRejected('BAD_MESSAGE');
+      challengeId = challenge.challengeId;
+      wirePayload = { step: challenge.step, value: input.value };
     }
+    this.assertLoginReady();
     const revision = this.controlRevision;
     const id = 'ipc_' + ulid();
     let bytes: Uint8Array;
-    try { bytes = encodeIpcFrame({type:1,data:encodeAdapterJson({v:1,type,id,ts:Date.now(),payload})}); }
+    try { bytes = encodeIpcFrame({type:1,data:encodeAdapterJson({v:1,type,id,ts:Date.now(),payload:wirePayload})}); }
     catch { throw new AdapterAdmissionRejected('INTERNAL'); }
     let used = false;
     return observeLate => {
+      if (used) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+      if (challengeId !== undefined && this.step?.challengeId !== challengeId) throw new AdapterAdmissionRejected('BAD_MESSAGE');
       this.assertLoginReady();
-      if (used || this.controlRevision !== revision) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
+      if (this.controlRevision !== revision) throw new AdapterAdmissionRejected('CHANNEL_UNAVAILABLE');
       used = true;
       // Once an attempt starts, the old prompt is no longer actionable. An accepted
       // new login.step (or a fresh adapter handshake followed by one) can restore it.

@@ -4,16 +4,18 @@ import type { AdapterLoginStep, AdapterPlatform } from './adapter-manager.js';
 import { loginOperationIdPattern, type PersistentLoginOperations } from './login-persistent.js';
 
 const platform = z.enum(['qq', 'telegram']);
-const submit = z.object({step:z.enum(['qr','phone','code','password']),value:z.string().min(1).max(4096)}).strict();
+const challengeId = z.string().length(36).regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+const submit = z.object({step:z.enum(['qr','phone','code','password']),value:z.string().min(1).max(4096),challengeId}).strict();
 const empty = z.object({}).strict();
 const operationId = z.string().regex(loginOperationIdPattern);
 const release = z.object({operationId,outcome:z.enum(['ack','offline','invalid'])}).strict();
 const error = (code:string) => ({error:{code,message:code,details:null}});
 const prefix = '/api/channels/:platform';
+const STEP_AUTH_CHANGED = new Error('Login step authorization changed');
 const noStore = {onRequest: async (_request:FastifyRequest, reply:FastifyReply) => { reply.header('Cache-Control','no-store'); }};
 const loginErrorStatus = (code:string): number => code==='TIMEOUT_UNKNOWN' ? 504 : code==='BAD_MESSAGE' ? 400 : code==='INTERNAL' ? 500 : 409;
 
-type Operations = Pick<PersistentLoginOperations, 'execute' | 'current' | 'release' | 'recovery'>;
+type Operations = Pick<PersistentLoginOperations, 'execute' | 'current' | 'readIdleStep' | 'release' | 'recovery'>;
 export interface ChannelControlOptions {
   loginStep(platform: AdapterPlatform): AdapterLoginStep | null;
   assertAdmission?: () => void;
@@ -52,10 +54,27 @@ export function registerChannelControlRoutes(app:FastifyInstance, operations:Ope
   }
 
   app.get<{Params:{platform:string}}>(prefix+'/login/step', noStore, async (req,reply) => {
-    if (!await actorFor(req.headers.authorization)) return reply.code(401).send(error('UNAUTHORIZED'));
-    const parsed = platform.safeParse(req.params.platform);
-    if (!parsed.success || !empty.safeParse(req.query).success) return reply.code(400).send(error('BAD_REQUEST'));
-    return { data: options.loginStep(parsed.data) };
+    try {
+      const authorization = req.headers.authorization;
+      const actor = await actorFor(authorization);
+      if (!actor) return reply.code(401).send(error('UNAUTHORIZED'));
+      const parsed = platform.safeParse(req.params.platform);
+      if (!parsed.success || !empty.safeParse(req.query).success) return reply.code(400).send(error('BAD_REQUEST'));
+      options.assertAdmission?.();
+      const candidateId = options.loginStep(parsed.data)?.challengeId;
+      return { data: await operations.readIdleStep(parsed.data, () => {
+        options.assertAdmission?.();
+        // Idle evidence for an earlier challenge cannot authorize returning a replacement.
+        if (candidateId === undefined) return null;
+        const current = options.loginStep(parsed.data);
+        return current?.challengeId === candidateId ? current : null;
+      }, candidateId === undefined ? undefined : async () => {
+        if (await actorFor(authorization) !== actor) throw STEP_AUTH_CHANGED;
+      }) };
+    } catch (cause) {
+      if (cause === STEP_AUTH_CHANGED) return reply.code(401).send(error('UNAUTHORIZED'));
+      return reply.code(503).send(error('INTERNAL'));
+    }
   });
 
   app.get<{Params:{platform:string}}>(prefix+'/login/operation', noStore, async (req,reply) => {

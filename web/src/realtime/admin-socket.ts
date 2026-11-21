@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { useLoginSteps, type Platform } from './login-steps';
+import { parseLoginStep, useLoginSteps, type Platform } from './login-steps';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 const eventKeys: Record<string, string[][]> = {
@@ -82,11 +82,9 @@ export function startAdminSocket(token: string, client: QueryClient, onState: (s
           const data = message.data as Record<string, unknown>;
           if (data.platform === 'qq' || data.platform === 'telegram') {
             const platform = data.platform;
-            if (message.type === 'channel.login.step' &&
-                (data.step === 'qr' || data.step === 'phone' || data.step === 'code' || data.step === 'password') &&
-                (data.qrPngBase64 === null || typeof data.qrPngBase64 === 'string') &&
-                (data.hint === null || typeof data.hint === 'string')) {
-              useLoginSteps.getState().observeStep(platform, { step: data.step, qrPngBase64: data.qrPngBase64, hint: data.hint });
+            if (message.type === 'channel.login.step') {
+              const step = parseLoginStep(data);
+              if (step) useLoginSteps.getState().observeStep(platform, step);
             }
             if (message.type === 'channel.updated' && typeof data.state === 'string') {
               const previous = accountStates[platform];

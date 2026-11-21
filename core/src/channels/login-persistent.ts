@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
-import type { AdapterAck, AdapterLoginCommand, AdapterLoginDispatch, AdapterLoginTransport, AdapterPlatform } from './adapter-manager.js';
+import type { AdapterAck, AdapterLoginCommand, AdapterLoginDispatch, AdapterLoginStep, AdapterLoginTransport, AdapterPlatform } from './adapter-manager.js';
 import { knownLocalRejection, type LoginOperationResult } from './login-operations.js';
 
 export type LoginPlatform = AdapterPlatform;
@@ -70,33 +70,53 @@ export class LoginOperationRepository {
 
 /** One durable reservation per platform. Unknown work blocks across restarts. */
 export class PersistentLoginOperations {
-  private readonly pending = new Set<LoginPlatform>();
+  private readonly lastExecution = new Map<LoginPlatform, { pending: boolean }>();
   constructor(private readonly transport: AdapterLoginTransport, private readonly repository: LoginOperationRepository) {}
 
   async current(platform: LoginPlatform): Promise<LoginOperationObservation> {
     const row = await this.repository.inspect(platform);
     return {
-      status: row?.outcome ? 'terminal' : this.pending.has(platform) ? 'pending' : row ? 'unknown' : 'idle',
+      status: row?.outcome ? 'terminal' : this.lastExecution.get(platform)?.pending ? 'pending' : row ? 'unknown' : 'idle',
       operationId: row?.operationId ?? null,
       outcome: row?.outcome ?? null,
     };
   }
 
+  /** Read durable status, refresh caller authority, then select the still-current step synchronously. */
+  async readIdleStep(platform: LoginPlatform, select: () => AdapterLoginStep | null,
+    reauthorize?: () => Promise<void>): Promise<AdapterLoginStep | null> {
+    const execution = this.lastExecution.get(platform);
+    const wasPending = execution?.pending;
+    const status = await this.repository.status(platform);
+    // A whole operation can fit inside the wait and leave an unknown row behind.
+    if (status !== 'idle' || wasPending || this.lastExecution.get(platform) !== execution) return null;
+    if (reauthorize) {
+      await reauthorize();
+      if (this.lastExecution.get(platform) !== execution) return null;
+    }
+    return select();
+  }
+
   async execute(platform: LoginPlatform, type: AdapterLoginCommand, payload: unknown, assertCanReserve: () => void = () => {}): Promise<LoginOperationResult> {
-    if (this.pending.has(platform)) return { kind: 'blocked' };
-    this.pending.add(platform);
+    const busy = this.lastExecution.get(platform)?.pending === true;
+    if (busy && type !== 'account.login.submit') return { kind: 'blocked' };
+    const execution = { pending: true };
+    if (!busy) this.lastExecution.set(platform, execution);
     try {
       let dispatch: AdapterLoginDispatch;
       try {
         assertCanReserve();
         // Bind to the current connection + challenge before any database wait.
+        // Local validation can reject a stale submit even while other work is pending.
         dispatch = this.transport.prepareLogin(platform, type, payload);
       } catch (error) {
-        // Existing unknown evidence takes precedence over a local offline/unsupported report.
-        if (await this.repository.inspect(platform)) return { kind: 'blocked' };
         const rejection = knownLocalRejection(error);
+        if (rejection?.code === 'BAD_MESSAGE') return { kind: 'rejected', code: rejection.code };
+        // Existing unknown evidence takes precedence over a local offline/unsupported report.
+        if (busy || await this.repository.inspect(platform)) return { kind: 'blocked' };
         return rejection ? { kind: 'rejected', code: rejection.code } : { kind: 'unknown' };
       }
+      if (busy) return { kind: 'blocked' };
       // A failed or uncertain insert must never be followed by dispatch. The
       // INSERT's unique platform key also serializes independent Core instances.
       const token = await this.repository.reserve(platform);
@@ -105,7 +125,7 @@ export class PersistentLoginOperations {
     } catch {
       return { kind: 'unknown' };
     } finally {
-      this.pending.delete(platform);
+      execution.pending = false;
     }
   }
 

@@ -79,7 +79,9 @@ Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系
 
 - 当前 IPC 连接依次处理 `adapter.hello`、`capabilities`、`account.state`。初始能力仅暂存在 Core；首条账号状态与有效登录能力、既有登录观察标记及适用的渠道告警在同一行锁事务中写入，确认提交后才给最终状态正向 ACK。随后能力更新只保留有效登录位，平台收发消息、语音和并发通话能力均关闭。启动、替换和断开仍按原规则区分重置与已观测掉线。Core 的 IPC 就绪不代表已登录或账号身份已验证。[渠道存储](../core/src/channels/repo.ts) · [连接管理](../core/src/channels/adapter-manager.ts)
 - 写入复核进程所有权和当前连接，提交命令发出前再检查一次。检查不能撤销已经发出的数据库提交；结果不明或清理失败仍作为失败或未知交由原有逻辑处理，不自动重发账号控制请求。
-- 管理广播独立于报告处理：每平台一个在途通知任务，频道、告警、登录步骤各一个最新提示槽。提示可能合并或丢失，旧连接或已失效的挑战不会在发送前仍通过校验。关停冻结新通知并等待已开始的任务。通过管理接口重新读取状态和操作记录；现有 Web 不会自动取回错过的登录步骤。[运行时](../core/src/channels/adapter-runtime.ts) · [恢复边界](platform-login-recovery.md)
+- 管理广播独立于报告处理：每平台一个在途通知任务，频道、告警、登录步骤各一个最新提示槽。提示可能合并或丢失，旧连接或已失效的挑战不会在发送前仍通过校验。关停冻结新通知并等待已开始的任务。通过管理接口重新读取状态和操作记录；错过的步骤可手动只读恢复。[运行时](../core/src/channels/adapter-runtime.ts) · [恢复边界](platform-login-recovery.md)
+
+- 错过提示时，Web 提供明确的只读操作。Core 只在没有本地操作与读回重叠、没有持久阻断记录、原管理员会话复核通过且挑战仍一致时返回当前步骤。空值不表示登录结果。Web 在当前管理会话、连接与平台观测仍有效时采用结果，读回和提示更换均清空输入。提交必须带 Core 生成的原挑战 ID；同名新提示、连接更换或已有发送会让旧标识失效。此标识只在 Core 与管理端内存传递，不进入适配器 IPC，不是账号控制命令的幂等键或管理员凭据。
 
 ### 异常短信托管
 
@@ -178,7 +180,9 @@ This release provides administrator readback and best-effort realtime events. Fo
 
 - The current IPC attachment reports `adapter.hello`, `capabilities`, and `account.state` in order. Core stages the initial capability report in memory. The first state report writes the account state, effective login capability, prior-login marker, and applicable channel alert in one row-locked transaction. The final positive ACK follows confirmed persistence. Later capability writes retain only the effective login bit; platform messaging, audio, and calling stay disabled. Startup, replacement, and disconnect still distinguish a reset from an observed outage. Core IPC readiness is not proof of login or verified account identity. [Channel repository](../core/src/channels/repo.ts) · [Connection manager](../core/src/channels/adapter-manager.ts)
 - Writes recheck process ownership and the current attachment, including just before issuing COMMIT. This fence cannot cancel a commit already in flight. Unconfirmed outcomes and cleanup failures retain their existing uncertainty; Core does not replay account commands.
-- Admin broadcasts run separately: one in-flight notification per platform and a latest slot each for channel, alert, and login-step hints. Hints can be coalesced or missed. Stale generations or retired prompts are filtered at send time. Shutdown freezes notification admission and drains work already started. Read back state and operations separately; the current Web UI does not automatically retrieve a missed login prompt. [Runtime](../core/src/channels/adapter-runtime.ts) · [Recovery boundaries](platform-login-recovery.md)
+- Admin broadcasts run separately: one in-flight notification per platform and a latest slot each for channel, alert, and login-step hints. Hints can be coalesced or missed. Stale generations or retired prompts are filtered at send time. Shutdown freezes notification admission and drains work already started. Read back state and operations separately; a missed prompt can be read back explicitly. [Runtime](../core/src/channels/adapter-runtime.ts) · [Recovery boundaries](platform-login-recovery.md)
+
+- Web offers an explicit read-only action for missed prompts. Core returns a step only if it still matches the challenge observed before the durable read, no local operation overlaps the read or the authorization recheck, no durable operation blocks it, and the original administrator session still authorizes the request. Null does not settle the sign-in outcome. Web discards results that outlive the current admin session, socket, or platform observation and clears typed values on readback and prompt replacement. A submit must carry the original Core-issued challenge ID. It stays in the management layer, not the adapter IPC payload, and is neither an idempotency key nor an administrator credential.
 
 ### Exceptional SMS custody
 

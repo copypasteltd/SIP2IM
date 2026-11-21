@@ -378,9 +378,13 @@ export function makeDemoApi({ now = Date.now, port = DEFAULT_PORT, onEvent = () 
     return data(state.settings);
   }
 
-  async function channels(method, path, body) {
+  async function channels(method, path, query, body) {
     if (method === 'GET' && path === '/api/channels') {
       return data(state.channels.map(channel => ({ ...channel, isInbound: channel.platform === state.settings.inboundPlatform })));
+    }
+    if (method === 'GET' && /^\/api\/channels\/(qq|telegram)\/login\/step$/.test(path)) {
+      queryKeys(query);
+      return data(null);
     }
     if (method === 'PUT' && path === '/api/channels/inbound') {
       const input = await body();
@@ -458,7 +462,7 @@ export function makeDemoApi({ now = Date.now, port = DEFAULT_PORT, onEvent = () 
     if (method === 'POST' && path === '/api/sms') return sendSms(headers, readAuthorized);
     if (method === 'GET' && (path === '/api/sms' || path.startsWith('/api/sms/'))) return smsRead(path, query, headers);
     if (path === '/api/calls' || path.startsWith('/api/calls/')) return calls(method, path, query);
-    if (path === '/api/channels' || path.startsWith('/api/channels/')) return channels(method, path, readAuthorized);
+    if (path === '/api/channels' || path.startsWith('/api/channels/')) return channels(method, path, query, readAuthorized);
     if (method === 'GET' && path === '/api/settings') return data(state.settings);
     if (method === 'PUT' && path === '/api/settings/conditional') return writeSettings(readAuthorized);
     if (method === 'GET' && path === '/api/admin/sms-quarantine') {

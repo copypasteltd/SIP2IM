@@ -339,7 +339,15 @@ test('keeps call controls disabled and the fixture settings conditional', async 
   assert.equal(data(await get('/api/settings')).heartbeatSec, 35);
   assert.deepEqual(data(await put('/api/auth/locale', { locale: 'en' })), { locale: 'en' });
   error(await put('/api/auth/password', { oldPassword: 'demo', newPassword: 'fixture-change' }), 403, 'DEMO_DISABLED');
-  error(await request('/api/channels/telegram/login/submit', { token, method: 'POST', body: { step: 'code', value: 'fixture-only' } }), 403, 'DEMO_DISABLED');
+  for (const platform of ['qq', 'telegram']) {
+    const route = '/api/channels/' + platform + '/login/step';
+    error(await request(route), 401, 'UNAUTHORIZED');
+    const noChallenge = await get(route);
+    assert.equal(data(noChallenge), null);
+    assert.equal(noChallenge.headers['cache-control'], 'no-store');
+    error(await get(route + '?unexpected=1'), 400, 'BAD_REQUEST');
+  }
+  error(await request('/api/channels/telegram/login/submit', { token, method: 'POST', body: { step: 'code', value: 'fixture-only', challengeId: '00000000-0000-4000-8000-000000000001' } }), 403, 'DEMO_DISABLED');
 });
 
 test('limits binding allocations and blocks writes completed after logout', async t => {
