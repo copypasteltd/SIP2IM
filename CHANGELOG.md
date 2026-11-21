@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · Android 握手超时恢复
+
+- Android 在当前 WebSocket 打开后最多等待 10 秒接纳 `hello.ok`，按单调时钟判断。即使定时回调还没执行，过期应答也不能应用配置或开启心跳和队列发送。[握手时限](android/app/src/main/kotlin/io/voipgw/gateway/core/HelloDeadline.kt)
+- 超时只退出当前连接。确认持久绑定的原代次已释放才按现有退避重连，不依赖旧 socket 再回调。旧定时任务不能影响新连接；已有终止状态或释放结果不明时仍停止并保留核对依据。不清空待发事件，不改变设备协议。[前台服务](android/app/src/main/kotlin/io/voipgw/gateway/core/GatewayService.kt)
+- 原生离线 JVM 测试、lint 和调试构建已复验；未安装真机。现有合成演示及录屏未变。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 入站短信通知与数据库连接隔离
 
 - Core 先读取已提交的通知标记并归还连接，再认证管理订阅者并广播，避免广播等待期间占用读事务的连接和行锁。短信历史与通知标记仍在同一事务入库，设备事件 ACK 不等待广播。[入站通知队列](core/src/sms/incoming-outbox.ts)
 - 广播调用成功返回后，在另一个短事务中按原事件 ID 和精确到微秒的标记创建时间清理。找不到原标记时不删除替换记录。清理回执不明确时，后续按持久标记重查，可能重复提示；这不是浏览器签收。停止或启动失败不再开启新通知，正常停机等待已开始的工作，所有权丢失时停止发送和清理尚未发出的操作。[关停协调](core/src/signal-handling.ts)
-- Web、适配器、演示和录屏未改动；复验了原合成流程。[验证记录](docs/VERIFICATION.md)
+- Web、适配器、演示和录屏未改动；复验了原合成流程。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/0b6a05107e36034543076ddf82c80619edd8ed86/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 平台登录挑战绑定与只读恢复
 
@@ -85,11 +91,17 @@
 
 ## English
 
+### 2026-11-21 · Android handshake timeout recovery
+
+- After the current WebSocket opens, Android has ten seconds on a monotonic clock to admit `hello.ok`. Even if the timeout callback has not run, a late reply cannot apply configuration or start heartbeats and queue dispatch. [Hello deadline](android/app/src/main/kotlin/io/voipgw/gateway/core/HelloDeadline.kt)
+- Expiry retires only the current connection. Reconnect uses the existing backoff and requires confirmed release of the original durable generation; it does not depend on a later socket callback. Old timers cannot affect a replacement connection. A prior terminal observation or unconfirmed release still prevents reconnect. Pending events and the wire format are unchanged. [Foreground service](android/app/src/main/kotlin/io/voipgw/gateway/core/GatewayService.kt)
+- Native offline JVM tests, lint, and the debug build were rechecked; nothing was installed on a handset. The synthetic demo and recording are unchanged. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Incoming SMS notification and pool isolation
 
 - Core releases the checkout used to read a committed notification marker before authorizing administrator subscribers and broadcasting. Fanout no longer holds that read connection or a marker row lock. SMS history and the marker still commit together; the device event ACK does not wait for fanout. [Incoming SMS outbox](core/src/sms/incoming-outbox.ts)
 - A separate short transaction clears only the original event ID and microsecond-precision marker timestamp after the broadcast call resolves. A replacement marker is not deleted on a mismatch. Uncertain cleanup can repeat the hint on a later read; neither cleanup nor broadcast establishes browser receipt. Stop or startup failure freezes new attempts, graceful shutdown drains admitted work, and observed ownership loss fences sends and cleanup not yet issued. [Shutdown coordinator](core/src/signal-handling.ts)
-- Web, the adapters, the demo, and its recording are unchanged. The existing synthetic workflow was rechecked. [Verification](docs/VERIFICATION.md)
+- Web, the adapters, the demo, and its recording are unchanged. The existing synthetic workflow was rechecked. [Verification](https://github.com/copypasteltd/SIP2IM/blob/0b6a05107e36034543076ddf82c80619edd8ed86/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Bound login challenges and read-only recovery
 

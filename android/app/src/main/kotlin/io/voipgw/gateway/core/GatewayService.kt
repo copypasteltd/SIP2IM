@@ -61,6 +61,7 @@ class GatewayService : Service() {
 
     private inner class Session(val connection: BindingConnection) {
         val bindingId get() = connection.identity.id
+        var helloDeadline: HelloDeadline? = null
         val drain = CooperativeDrain(
             post = { task -> handler.post { lifecycle.run { task.run() } }; Unit },
             stopped = { stopped || !execution.isReady(connection) },
@@ -170,14 +171,24 @@ class GatewayService : Service() {
         }
 
         override fun onOpen(webSocket: WebSocket, response: Response) = current(webSocket) {
-            if (active.connection.disconnected) return@current
+            if (active.connection.disconnected || active.helloDeadline != null) return@current
             try {
+                val deadline = HelloDeadline(
+                    now = android.os.SystemClock::elapsedRealtime,
+                    postDelayed = { task, delay -> handler.postDelayed(task, delay) },
+                    removeCallbacks = { handler.removeCallbacks(it) },
+                    withCurrent = { work -> current(webSocket, work) },
+                    onExpired = { retireHandshake(active, webSocket) },
+                )
+                active.helloDeadline = deadline
+                if (!deadline.arm()) return@current
                 val info = packageManager.getPackageInfo(packageName, 0)
+                if (!deadline.allowsReply()) return@current
                 check(sendOn(webSocket, "hello", JSONObject().put("token", active.connection.identity.token)
                     .put("apkVersion", info.versionName ?: "unknown").put("apkCode", info.versionCode)
                     .put("protocol", 1).put("manufacturer", Build.MANUFACTURER).put("model", Build.MODEL)
                     .put("apiLevel", Build.VERSION.SDK_INT).put("locale", Locale.getDefault().toString().replace('_', '-'))))
-            } catch (_: Exception) { cancelConnection(active, webSocket) }
+            } catch (_: Exception) { retireHandshake(active, webSocket) }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) = current(webSocket) {
@@ -231,6 +242,8 @@ class GatewayService : Service() {
     }
 
     private fun handleHello(active: Session, ws: WebSocket, payload: JSONObject?) {
+        val deadline = active.helloDeadline ?: return retireHandshake(active, ws)
+        if (!deadline.allowsReply()) return
         val hello = execution.hello(active.connection, payload?.opt("deviceId")) {
             val values = configValues(checkNotNull(payload).getJSONObject("config"))
             require(ConfigUpdate.error(values) == null && values.containsKey("heartbeatSec") && values.containsKey("locale"))
@@ -241,6 +254,7 @@ class GatewayService : Service() {
         }
         when (hello) {
             GatewayExecution.Hello.ACCEPTED -> {
+                deadline.accepted()
                 reconnects = 0
                 rescheduleHeartbeat()
                 flushNext(active, ws)
@@ -469,8 +483,16 @@ class GatewayService : Service() {
         ws.cancel()
     }
 
+    private fun retireHandshake(active: Session, ws: WebSocket) {
+        if (stopped || session !== active || socket !== ws) return
+        active.connection.observeDisconnect()
+        // Do not leave local recovery dependent on a later transport callback.
+        try { finishConnection(active) } finally { ws.cancel() }
+    }
+
     private fun finishConnection(active: Session) {
         if (stopped || session !== active) return
+        active.helloDeadline?.close()
         session = null; socket = null; pacer.reset()
         val released = execution.close(active.connection)
         val ticket = ++reconnectTicket
@@ -525,7 +547,10 @@ class GatewayService : Service() {
             stopped = true
             if (::observationToken.isInitialized) observationEnded = GatewayConnectionObservation.state.endInstance(observationToken)
             val previous = socket
-            session?.let { execution.close(it.connection) }
+            session?.let {
+                it.helloDeadline?.close()
+                execution.close(it.connection)
+            }
             session = null; socket = null; pacer.reset()
             previous
         }

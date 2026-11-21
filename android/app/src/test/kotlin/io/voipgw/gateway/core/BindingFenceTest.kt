@@ -118,6 +118,78 @@ class BindingFenceTest {
         assertEquals(1, restarted.runReady(second, { false }) { 1 })
     }
 
+    private class WaitingConnection(private val execution: GatewayExecution, private val connection: BindingConnection) {
+        private var elapsed = 40L
+        private var wake: Runnable? = null
+        var released: Boolean? = null
+            private set
+        private val deadline = HelloDeadline(
+            now = { elapsed },
+            postDelayed = { task, delay -> assertEquals(10_000L, delay); wake = task; true },
+            removeCallbacks = { if (wake === it) wake = null },
+            withCurrent = { task -> if (released == null) task() },
+            onExpired = {
+                connection.observeDisconnect()
+                released = execution.close(connection)
+            },
+        )
+        init { assertTrue(deadline.arm()) }
+
+        fun expire() {
+            elapsed += 10_000L
+            checkNotNull(wake).run()
+            assertFalse(deadline.allowsReply())
+        }
+    }
+
+    @Test fun handshakeTimeoutAllowsANewGenerationOnlyAfterTheOriginalBindingIsReleased() {
+        val disk = SavedBinding()
+        val execution = GatewayExecution(disk.bind())
+        val original = checkNotNull(execution.open())
+        val waiting = WaitingConnection(execution, original)
+        assertEquals(BindingRecord.Phase.OPEN, disk.record?.phase)
+        assertNull(execution.open())
+        waiting.expire()
+        assertEquals(true, waiting.released)
+        assertEquals(BindingRecord.Phase.IDLE, disk.record?.phase)
+        val replacement = checkNotNull(execution.open())
+        assertEquals(original.identity.id, replacement.identity.id)
+        assertNotEquals(original.generation, replacement.generation)
+        assertEquals(GatewayExecution.Hello.STALE, execution.hello(original, DEVICE) { error("Old socket configured") })
+        assertFalse(execution.close(original))
+        assertFalse(execution.isReady(replacement))
+        assertEquals(GatewayExecution.Hello.ACCEPTED, execution.hello(replacement, DEVICE) {})
+    }
+
+    @Test fun handshakeTimeoutPreservesAnAlreadyObservedTerminalClose() {
+        val disk = SavedBinding()
+        val fence = disk.bind()
+        val execution = GatewayExecution(fence)
+        val original = checkNotNull(execution.open())
+        val waiting = WaitingConnection(execution, original)
+        original.observeDisconnect(checkNotNull(GatewayExecution.terminalReason(4010)))
+        waiting.expire()
+        assertEquals(true, waiting.released)
+        assertEquals(BindingFence.State.TERMINAL, fence.state())
+        assertEquals(BindingFence.State.TERMINAL, disk.reopen().state())
+        assertNull(execution.open())
+    }
+
+    @Test fun handshakeTimeoutDoesNotAcquireAnotherGenerationAfterAnUncertainClose() {
+        for (fault in listOf(SavedBinding.Fault.BEFORE_WRITE, SavedBinding.Fault.AFTER_WRITE)) {
+            val disk = SavedBinding()
+            val fence = disk.bind()
+            val execution = GatewayExecution(fence)
+            val original = checkNotNull(execution.open())
+            val waiting = WaitingConnection(execution, original)
+            disk.nextFault = fault
+            waiting.expire()
+            assertEquals(false, waiting.released)
+            assertEquals(BindingFence.State.RECONCILIATION, fence.state())
+            assertNull(execution.open())
+        }
+    }
+
     @Test fun mismatchingAbsentAndCoercedIdentityNeverApplyConfigOrPermitEffects() {
         for (deviceId in listOf("different", "", null, 123)) {
             val disk = SavedBinding()

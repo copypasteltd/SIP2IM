@@ -79,7 +79,7 @@ android/
 ### 3.1 core
 
 - **GatewayService**：开机/进程启动后运行；持有 Connection、Outbox、CommandRouter。**暂停**（只能在手机本机切换）期间：照常心跳（paused=true）与上传短信、照常上报来电；对 sms.send / call.dial / call.answer 回 ack ok:false DEVICE_DISABLED（见 05 §3.4）。
-- **Connection**：OkHttp 3.12 WebSocket；重连退避 1、2、4、8、16、30 秒封顶；连接成功先发 hello，收 hello.ok 后发 status.snapshot，再冲刷 Outbox。
+- **Connection**：OkHttp 3.12 WebSocket。当前连接的 `onOpen` 发 hello，启动 10 秒单调时钟握手时限；在接纳 `hello.ok` 前复核截止时间。匹配的应答应用配置并发送 `status.snapshot` 后才启动正常心跳和 Outbox 发送。超时主动退出原连接，在确认释放持久代次后按现有 1、2、4、8、16、30 秒退避重连；终止性关闭与释放结果不明仍需核对。定时回调不唤醒休眠设备。
 - **Outbox**：表 `outbox(id text primary key, type, payload, created_at, expires_at, attempts)`；id 即信封 id（evt_），**入表时生成并固定**，重发不变；收到 ack 删除。只有 05 §3.3 标为“进入 Outbox”的事件入表：heartbeat 与 status.snapshot 不入表；call.incoming / call.state 带 60 秒 TTL，过期删除不发；sms.received / sms.result 无 TTL、永不丢弃。
 - **CommandRouter**：按 type 分发；按 05 §3.4 的表在“前置校验 + 提交”后回 ack（ok 或 ok:false + 错误码），执行结果另发事件；重复的命令 id 直接回上次的 ack，不重复执行（保留最近 500 个 id）。
 
