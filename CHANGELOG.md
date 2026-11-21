@@ -4,10 +4,16 @@
 
 ## 简体中文
 
+### 2026-11-21 · Core 管理连接首条鉴权截止
+
+- Core 从接管 `/ws/admin` 连接起计 5 秒，按单调时钟在接收、排队处理、发起查询前及鉴权结果返回时复核。到期未完成的鉴权返回关闭码 `4401`，即使定时回调延迟也不会登记订阅或发送排队的 `pong`。[管理会话](core/src/ws-admin/session.ts)
+- 关停冻结新消息，但保留首条鉴权时限并等待已接纳的查询返回。及时完成首条鉴权后，已接纳的心跳仍正常复核会话；撤权或已观察到的连接关闭不被迟到结果覆盖。没有更改报文格式、客户端退避或写入语义。
+- 本轮复验 Core、Web 与合成演示，原录屏未改动，不展示服务端鉴权竞态。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Web 管理连接超时恢复
 
 - WebSocket 打开与首个 `pong` 分别限时 10 秒；后续心跳以 60 秒单调时钟窗口判断是否有效，只允许一个未应答的 `ping`。超时、错误或发送失败即在本地淘汰连接，不等旧连接的关闭回调，仍按 1–30 秒退避。[管理连接](web/src/realtime/admin-socket.ts)
-- 只有当前管理员会话与当前连接可以接纳提示。恢复后发起一次查询刷新，不重发写入；迟到的旧提示不能复用，已经提交但结果不明的操作仍需按原请求核对。协议、演示界面和原录屏未更改。[验证记录](docs/VERIFICATION.md)
+- 只有当前管理员会话与当前连接可以接纳提示。恢复后发起一次查询刷新，不重发写入；迟到的旧提示不能复用，已经提交但结果不明的操作仍需按原请求核对。协议、演示界面和原录屏未更改。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/4bc8c3624cc9969d9edcffa2f755ed16ac4aa3e2/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Android 队头确认超时退避
 
@@ -102,10 +108,16 @@
 
 ## English
 
+### 2026-11-21 · Core admin first-auth deadline
+
+- Core starts a five-second monotonic deadline when it takes ownership of an admin WebSocket. It checks the deadline at message admission, queued processing, before the auth lookup, and when it settles. Expired first auth closes with `4401`; a delayed timer cannot turn an expired result into a subscription or a queued `pong`. [Admin sessions](core/src/ws-admin/session.ts)
+- Shutdown freezes new work but retains the deadline and joins admitted lookups. When first auth finishes on time, admitted heartbeats still recheck the session. Revocation or a previously observed close is not overwritten by a late result. The wire format, client retry, and write semantics are unchanged.
+- Core, Web, and the synthetic demo were rechecked. The retained recording is unchanged and does not show the server-side timing race. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Web admin connection timeout recovery
 
 - WebSocket open and the first `pong` have separate ten-second deadlines. Subsequent liveness uses a 60-second monotonic window with at most one unanswered `ping`. Timeout, error, or send failure retires the attempt locally without waiting for a close callback, then retries with 1–30 second backoff. [Admin socket](web/src/realtime/admin-socket.ts)
-- Only the current admin session and socket can accept hints. On recovery, Web asks for a query refresh once and never replays writes. Retired hints cannot be reused, and uncertain requests still require reconciliation under the original operation. The wire protocol, demo interface, and recording are unchanged. [Verification](docs/VERIFICATION.md)
+- Only the current admin session and socket can accept hints. On recovery, Web asks for a query refresh once and never replays writes. Retired hints cannot be reused, and uncertain requests still require reconciliation under the original operation. The wire protocol, demo interface, and recording are unchanged. [Verification](https://github.com/copypasteltd/SIP2IM/blob/4bc8c3624cc9969d9edcffa2f755ed16ac4aa3e2/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Android backoff for unacknowledged queue heads
 

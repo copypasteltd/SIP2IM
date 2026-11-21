@@ -1,6 +1,8 @@
 import {adminAuth} from '@voipgw/protocol';
 import type {DeviceSocket} from '../ws-device/session.js';
 
+const AUTH_TIMEOUT_MS = 5_000;
+
 interface AdminState {
   socket: DeviceSocket;
   token?: string;
@@ -20,7 +22,8 @@ export class AdminSessions {
   private cleanupFailed = false;
   private stopPromise?: Promise<void>;
 
-  constructor(private readonly authenticate:(token:string)=>Promise<string|null>) {}
+  constructor(private readonly authenticate:(token:string)=>Promise<string|null>,
+    private readonly now:()=>number = () => performance.now()) {}
 
   private detach(state:AdminState):void {
     if (!state.closed) {
@@ -53,10 +56,7 @@ export class AdminSessions {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
     const states = [...this.sessions];
-    for (const state of states) {
-      if (state.timer !== undefined) clearTimeout(state.timer);
-      state.timer = undefined;
-    }
+    // First-auth deadlines remain in force while already-admitted work drains.
     // Defer cleanup so reentrant callers always observe the same promise.
     this.stopPromise = Promise.resolve().then(async () => {
       const results = await Promise.allSettled(states.map(state => state.queue));
@@ -82,25 +82,38 @@ export class AdminSessions {
     const state:AdminState = {socket,authenticated:false,closed:false,pending:0,queue:Promise.resolve(),timer:undefined,onAuthenticated,onClose};
     this.sessions.add(state);
     const closeWith = (code: number) => this.closeWith(state, code);
-    state.timer = setTimeout(() => {
-      if (!state.authenticated && !state.closed) closeWith(4401);
-    },5000);
+    const authDeadline = this.now() + AUTH_TIMEOUT_MS;
+    const canContinue = (): boolean => {
+      if (state.closed) return false;
+      if (state.authenticated || this.now() < authDeadline) return true;
+      closeWith(4401);
+      return false;
+    };
+    const checkDeadline = (): void => {
+      if (state.closed || state.authenticated) return;
+      const remaining = authDeadline - this.now();
+      if (remaining <= 0) closeWith(4401);
+      else state.timer = setTimeout(checkDeadline, Math.ceil(remaining));
+    };
+    state.timer = setTimeout(checkDeadline, AUTH_TIMEOUT_MS);
     return {
       close:()=>this.detach(state),
       message:(raw:string):Promise<void> => {
-        if (this.stopping || state.closed) return Promise.resolve();
+        if (this.stopping || !canContinue()) return Promise.resolve();
         if (state.pending >= 64) { closeWith(1013); return Promise.resolve(); }
         state.pending++;
         const job = state.queue.then(async () => {
-          if (state.closed) return;
+          if (!canContinue()) return;
           try {
             const parsed:unknown = JSON.parse(raw);
             if (!state.authenticated) {
               const auth = adminAuth.safeParse(parsed);
+              if (!canContinue()) return;
               if (!auth.success) { closeWith(4403); return; }
               state.token = auth.data.token;
               const identity = await this.authenticate(state.token);
-              if (state.closed) return;
+              // A query can settle before an overdue timer runs, including during shutdown.
+              if (!canContinue()) return;
               if (!identity) { closeWith(4403); return; }
               state.authenticated = true;
               if (state.timer !== undefined) clearTimeout(state.timer);
@@ -115,7 +128,7 @@ export class AdminSessions {
               socket.send(JSON.stringify({ type: 'pong' }));
             }
           } catch {
-            if (!state.closed) closeWith(1011);
+            if (canContinue()) closeWith(1011);
           }
         });
         state.queue = job.finally(() => {
