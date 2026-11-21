@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
-import { encodeMediaFrame } from '@voipgw/protocol';
+import { decodeMediaFrame, encodeMediaFrame, MEDIA_FLAGS } from '@voipgw/protocol';
 import { ulid } from 'ulid';
 import { DeviceCommands, type CurrentCallAttachment } from '../src/ws-device/commands.js';
 import { DeviceSessions } from '../src/ws-device/session.js';
@@ -50,12 +50,13 @@ function fixture(allowed = true, capture?: () => CurrentCallAttachment | null) {
       return true;
     }),
   };
-  const media = new MediaTransport(async token => token === 'device-test' ? { id: 'device', enabled: true } : null);
+  const diagnostic = vi.fn();
+  const media = new MediaTransport(async token => token === 'device-test' ? { id: 'device', enabled: true } : null, diagnostic, () => Date.now());
   const calls = new WebCalls({ store, media, automatic: false,
     capture: capture ?? (() => allowed ? { connectionId: 'process-connection', current: () => connected, prepare } : null),
     summary: async id => ({ id, state: row.state }), authorizeOwner: async () => account ? Date.now() + 60_000 : null, update: vi.fn() });
   closers.push(async () => { await calls.stop(); media.close(); await media.drain(); });
-  return { calls, store, media, row, sent, prepare,
+  return { calls, store, media, row, sent, prepare, diagnostic,
     identifiers: () => ids!, disconnect: () => { connected = false; }, expire: () => { account = false; } };
 }
 
@@ -123,6 +124,55 @@ describe('browser call orchestration', () => {
     await step(f, 300);
     expect(socket.close).toHaveBeenCalledWith(4404);
     expect(f.sent).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports an attached browser that never supplies a frame while the device leg is absent', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    const f = fixture();
+    const data = await f.calls.create(request, 'owner');
+    openBrowser(f, data);
+    const attachedAt = Date.now();
+    vi.setSystemTime(attachedAt + 1_000);
+    await step(f);
+    expect(f.diagnostic).not.toHaveBeenCalled();
+    vi.setSystemTime(attachedAt + 1_999);
+    await step(f);
+    expect(f.diagnostic).not.toHaveBeenCalled();
+    vi.setSystemTime(attachedAt + 2_000);
+    await step(f);
+    const ids = f.identifiers();
+    expect(f.diagnostic).toHaveBeenCalledExactlyOnceWith(ids.id, ids.browserLegId, 'media_stalled');
+    await step(f, 300);
+    expect(f.diagnostic).toHaveBeenCalledOnce();
+    expect(f.prepare).not.toHaveBeenCalled();
+    expect(f.row.state).toBe('awaiting_browser');
+  });
+
+  it('diagnoses both stalled legs without hanging up or forwarding expired PCM', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    const f = fixture();
+    const data = await f.calls.create(request, 'owner');
+    const { browser, socket } = openBrowser(f, data);
+    browser.message(silence(), true);
+    await step(f, 20);
+    const ids = f.identifiers();
+    expect(f.row.state).toBe('cell_dialing');
+    const cell = f.media.open(makeSocket(), '/ws/media?' + new URLSearchParams({session:ids.id,leg:ids.cellularLegId}), 'Bearer device-test');
+    await f.media.drain();
+    f.row.legState = 'active';
+    for (let seq=0;seq<5;seq++) cell.message(encodeMediaFrame({format:2,flags:0,seq,captureTs:Date.now()>>>0,pcm:new Uint8Array(640).fill(10)}), true);
+    await step(f,300);
+    expect(f.row.state).toBe('bridged');
+    socket.send.mockClear();
+    // Refresh owner proof without letting the playout tick emit the older frame.
+    await step(f,1_900);
+    await step(f,20);
+    expect(socket.send).toHaveBeenCalled();
+    expect(socket.send.mock.calls.every(([data])=>decodeMediaFrame(data).flags===MEDIA_FLAGS.silence)).toBe(true);
+    expect(f.diagnostic.mock.calls).toEqual([[ids.id,ids.browserLegId,'media_stalled'],[ids.id,ids.cellularLegId,'media_stalled']]);
+    expect(f.row.state).toBe('bridged');
+    expect(f.prepare.mock.calls.map(([type])=>type)).toEqual(['call.dial']);
+    expect(f.store.finish).not.toHaveBeenCalled();
   });
 
   it('releases in-memory media without sending or retrying when durable arming is denied', async () => {

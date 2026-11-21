@@ -50,6 +50,10 @@ Core 在获取独占所有权后、监听前，以每事务最多 64 条会话�
 
 自动化测试可显式注入按通话代次运行的内存设备夹具，覆盖过期连接、挂断匹配和媒体开启失败。普通设备模拟器的 Shizuku 状态保持不明。真实 Web 通话仍需要验收名单、实际设备控制和有效的双向音频。[内存通话夹具](../tools/device-simulator/README.md)
 
+### 媒体接收与断流
+
+Core 按接收端单调时钟计算帧到达后的年龄；待鉴权和待播放的帧超过 300 ms 即丢弃，这不是端到端延迟承诺。5 秒鉴权截止在处理认证结果或消息时直接检查，不依赖超时回调先执行。抖动缓冲最多保留 15 个序号槽，丢弃的样本不会因为重复发送而重新计时。长间隔后用向前推进的序号重新缓冲。已认证且仍获授权的每条通话腿独立检查：接入或最近一次新帧入队满 2 秒后，可记录一次 `media_stalled`，直至下一帧成功入队。日志包含会话 ID、腿 ID 和诊断名，不写媒体内容或凭据。缺帧补静音；断流本身不触发挂断，也不证明通话已经结束或真机双向音频已经验收。[传输](../core/src/media/transport.ts) · [缓冲](../core/src/media/jitter.ts) · [协调](../core/src/calls/web-calls.ts)
+
 ### 设备健康与运维告警
 
 Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系过且已经超时的设备会触发离线告警。Shizuku 不可用和 SIM 锁定或缺失需要持续 60 秒的有效采样。缺少权限告警需要明确的短信权限拒绝。SIM 清单不可观测时，Android 仍可上报独立的短信权限，空清单保持非权威。过期或不明证据保留既有告警状态。确认告警保留历史，同一次故障期间继续抑制重复提示。观察到恢复后，新的故障才会再次提示。Core 在事务确认后推送变化，Web 告警列表每 30 秒回读当前页。[健康告警](../core/src/devices/health-alerts.ts) · [Web 告警列表](../web/src/features/records/records.tsx)
@@ -132,6 +136,10 @@ Call controls recheck the administrator session, device connection and call stat
 After acquiring exclusive ownership and before listening, Core reconciles at most 64 locked call sessions per transaction. It advances by immutable ID after a confirmed commit. An unconfirmed commit stops startup rather than redialling or sending hangup. An awaiting-browser state alone is not proof of no dial: the original reservation and identity events, two unused legs, and the absence of attempts and action evidence are required. Missing proof leaves the outcome unknown, and an unknown Web call continues to block a new dial on that device. Browser arming checks the 30-second cutoff against the database clock after locking. A background pass checks up to 16 expired reservations, skips contended locks, and revisits after wrapping. Session, legs and event change in one transaction; best-effort notification follows confirmed commit. The sweep has no device or media command path. [Startup reconciliation](../core/src/calls/reconcile.ts) · [Reservation sweep](../core/src/calls/web-reservations.ts)
 
 Offline tests can inject a generation-aware in-memory device fixture to exercise replaced connections, exact hangup matching and failed media setup. The ordinary simulator reports Shizuku as unknown. Real Web calling still requires a verified allowlist, physical device control and working two-way audio. [In-memory call fixture](../tools/device-simulator/README.md)
+
+### Media receive timing and stalls
+
+Core uses a monotonic receiver clock for both the queue awaiting authentication and playout. Frames older than 300 ms are dropped, not replayed; this is not an end-to-end latency guarantee. The five-second authentication deadline is checked directly and does not rely on the timeout callback running first. The jitter buffer keeps at most 15 sequence slots and does not re-age discarded samples when a duplicate arrives. After a gap, a forward sequence re-primes playout. Each authorized attached call leg is checked separately: two seconds since attachment or its last newly accepted frame can log one `media_stalled` until a new frame is accepted. The diagnostic contains the session ID, leg ID, and event name, not audio or credentials. Missing frames produce silence. A stall alone neither triggers a hangup nor establishes a terminal call or verified two-way cellular audio. [Transport](../core/src/media/transport.ts) · [Buffer](../core/src/media/jitter.ts) · [Coordinator](../core/src/calls/web-calls.ts)
 
 ### Device health and operational alerts
 

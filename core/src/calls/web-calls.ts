@@ -164,14 +164,18 @@ export class WebCalls {
   tick(now = this.clock()): void {
     if (this.closing) return;
     for (const entry of this.live.values()) {
-      const browser = this.deps.media.status(entry.ids.id, entry.ids.browserLegId, now);
-      const cell = this.deps.media.status(entry.ids.id, entry.ids.cellularLegId, now);
+      const receiverNow = this.deps.media.now();
+      const browser = this.deps.media.status(entry.ids.id, entry.ids.browserLegId, receiverNow);
+      const cell = this.deps.media.status(entry.ids.id, entry.ids.cellularLegId, receiverNow);
       try {
-        if (this.ownerCurrent(entry) && !entry.hangupRequested && browser.attached && cell.attached) {
-          if (entry.phase === 'bridged') entry.router.tick(now);
-          else if (entry.phase === 'dialing') {
-            entry.cell.checkStalled(now);
-            const audio = entry.cell.read();
+        if (this.ownerCurrent(entry) && !entry.hangupRequested) {
+          // Diagnose each authorized attachment independently. A stall alone is
+          // not evidence that the cellular call has ended.
+          if (browser.attached) entry.browser.checkStalled(receiverNow);
+          if (cell.attached) entry.cell.checkStalled(receiverNow);
+          if (browser.attached && cell.attached && entry.phase === 'bridged') entry.router.tick(now, receiverNow);
+          else if (browser.attached && cell.attached && entry.phase === 'dialing') {
+            const audio = entry.cell.read(receiverNow);
             const flags = audio.flags & (MEDIA_FLAGS.earlyMedia | MEDIA_FLAGS.silence);
             if (flags & MEDIA_FLAGS.earlyMedia) entry.browser.write(audio.pcm, flags, now);
           }

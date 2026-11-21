@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · 媒体收帧时序与断流诊断
+
+- Core 保存接收端单调时钟上的到达时间。鉴权等待不刷新旧帧；等待期间和播放时超过 300 ms 的帧均丢弃。[媒体传输](core/src/media/transport.ts) · [抖动缓冲](core/src/media/jitter.ts)
+- 被拒绝的重复或迟到帧不会推迟断流诊断。长间隔后用向前推进的序号重新缓冲，保留 uint32 回绕。已认证且仍获授权的腿满 2 秒没有新帧入队时记录 `media_stalled`，不凭此挂断或标记通话结束。[媒体腿](core/src/media/leg.ts) · [通话协调](core/src/calls/web-calls.ts)
+- 本轮不更改帧格式、设备能力或 Web 界面。原合成演示和实录保留并复验。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 通话启动对账与过期预约
 
 - Core 在对外监听前分批核对通话，每个事务最多锁定 64 条会话，只处理未结记录及未结证据。提交未确认时停止后续批次；不重拨、不自动挂断。[启动对账](core/src/calls/reconcile.ts)
 - 浏览器拨号认领按数据库时钟检查 30 秒预约期限。后台独立巡检，在复核原始身份事件、两条未使用的腿和无拨号尝试后，才关闭过期预约。有矛盾或缺少证据的未知 Web 会话仍阻止再次拨号。[预约证明与回收](core/src/calls/web-reservations.ts) · [通话存储](core/src/calls/web-call-store.ts)
-- 本轮不启用蜂窝或平台通话能力。Web、合成演示和实录素材未变，已复验。[本轮验证](docs/VERIFICATION.md)
+- 本轮不启用蜂窝或平台通话能力。Web、合成演示和实录素材未变，已复验。[本轮验证](https://github.com/copypasteltd/SIP2IM/blob/6c1d7053b67b4db881213fef4a3725e29f2a3511/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 短信跨设备调度
 
@@ -55,11 +61,17 @@
 
 ## English
 
+### 2026-11-21 · Media frame timing and stall diagnostics
+
+- Core records arrival using a receiver-side monotonic clock. Authentication does not refresh queued frames; frames older than 300 ms are discarded after authentication and at playout. [Media transport](core/src/media/transport.ts) · [Jitter buffer](core/src/media/jitter.ts)
+- Rejected duplicates and late frames do not reset the stall clock. After a gap, a forward sequence can re-prime playout across uint32 wrap. An authorized attached leg with no newly accepted frame for two seconds logs `media_stalled`; the diagnostic does not hang up or mark the call ended. [Media leg](core/src/media/leg.ts) · [Call coordination](core/src/calls/web-calls.ts)
+- Frame format, device capabilities, and the Web UI are unchanged. The existing demo and recording were retained and rechecked. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Call restart recovery and expired reservations
 
 - Before accepting traffic, Core reconciles call records in transactions of at most 64 locked sessions. It touches only unsettled call state and evidence. An unconfirmed commit stops subsequent batches. Recovery does not redial or automatically hang up. [Startup reconciliation](core/src/calls/reconcile.ts)
 - Durable browser dial admission checks the 30-second reservation cutoff using the database clock. A separate sweep closes expired reservations only after confirming the original identity event, two unused legs, and no dial attempt. A Web call with contradictory or missing evidence stays busy when its outcome is unknown. [Reservation proof and sweep](core/src/calls/web-reservations.ts) · [Call store](core/src/calls/web-call-store.ts)
-- This does not enable cellular or platform calling. Web, the synthetic demo, and the recording were unchanged and rechecked. [Verification](docs/VERIFICATION.md)
+- This does not enable cellular or platform calling. Web, the synthetic demo, and the recording were unchanged and rechecked. [Verification](https://github.com/copypasteltd/SIP2IM/blob/6c1d7053b67b4db881213fef4a3725e29f2a3511/docs/VERIFICATION.md)
 
 ### 2026-11-21 · SMS scheduling across devices
 

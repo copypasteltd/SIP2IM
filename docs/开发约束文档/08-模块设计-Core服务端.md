@@ -95,8 +95,8 @@ http → 各模块 routes
 ### 3.5 media
 
 - 内部统一 16 kHz PCM16；进出 8 kHz（设备降级）、48 kHz（适配器）时用 `resample.ts`（线性插值 + 一阶低通，自写，带频响测试）。
-- 每条腿一个 Leg 对象：格式在首帧锁定、JitterBuffer、最近 1 秒 RMS。
-- 路由器每 20 ms 从每条腿取一帧（缺帧补静音）写给对端腿。
+- 每条腿的格式在首个有效帧确定。抖动缓冲最多 15 个序号槽，按 Core 收帧时钟丢弃超过 300 ms 的样本；被拒绝的重复或迟到帧不刷新断流计时。
+- 路由器每 20 ms 从每条腿取一帧（缺帧补静音）写给对端腿。 通话协调器独立检查每条已认证且仍获授权的腿，满 2 秒没有新帧入队时记录一次诊断，不自动挂断。
 - 适配器音频：adapter-audio.ts 把 IPC 0x02 帧按 audioChannel 路由到对应平台腿；audioChannel 在 call.dial 时分配（每个适配器 0–255 循环，跳过占用中的值）。
 - **早期媒体判定（early-media.ts）：** 以 20 ms 为步长，计算最近 50 帧（1 秒）中带 bit0 的蜂窝下行帧的**平均 RMS**；≥ early_media_threshold_dbfs 视为“有早期媒体”。
 - **提示语音（prompt-player.ts）：** 加载 `assets/prompts/connecting.<bot_locale>.pcm`（16 kHz），循环输出，帧 flags bit1；每次切换都在帧边界进行。

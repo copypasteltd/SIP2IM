@@ -25,9 +25,9 @@ describe('authenticated media transport (fake sockets)',()=>{
  it('resets jitter on device reconnection without replacing the routed leg or renegotiating format',async()=>{
   const t=new MediaTransport(async()=>({id:'d',enabled:true})); const {leg}=t.provision('s','l',{kind:'device',deviceId:'d'}); const a=socket(),b=socket(); const first=t.open(a,url,'Bearer good'); await Promise.resolve();
   for(let seq=100;seq<106;seq++) first.message(encodeMediaFrame({format:2,flags:0,seq,captureTs:0,pcm:new Uint8Array(640)}),true);
-  expect(leg.jitter.pop()?.seq).toBe(100); const second=t.open(b,url,'Bearer good'); await Promise.resolve(); expect(a.close).toHaveBeenCalledWith(4409); expect(leg.jitter.size).toBe(0);
+  expect(leg.jitter.pop(t.now())?.seq).toBe(100); const second=t.open(b,url,'Bearer good'); await Promise.resolve(); expect(a.close).toHaveBeenCalledWith(4409); expect(leg.jitter.size).toBe(0);
   for(let seq=0;seq<6;seq++) second.message(encodeMediaFrame({format:2,flags:0,seq,captureTs:0,pcm:new Uint8Array(640)}),true);
-  expect(leg.jitter.pop()?.seq).toBe(0); first.close(); second.message(encodeMediaFrame({format:1,flags:0,seq:4,captureTs:0,pcm:new Uint8Array(320)}),true); expect(leg.closed).toBe(true); t.close();
+  expect(leg.jitter.pop(t.now())?.seq).toBe(0); first.close(); second.message(encodeMediaFrame({format:1,flags:0,seq:4,captureTs:0,pcm:new Uint8Array(320)}),true); expect(leg.closed).toBe(true); t.close();
  });
  it('limits pending empty frames and clears them after rejection',async()=>{
   let resolve!:(v:{id:string;enabled:boolean})=>void; const t=new MediaTransport(()=>new Promise(r=>{resolve=r;})); const {leg}=t.provision('s','l',{kind:'device',deviceId:'d'}); const s=socket(), session=t.open(s,url,'Bearer good');
@@ -62,6 +62,63 @@ describe('authenticated media transport (fake sockets)',()=>{
   expect(()=>t.close()).toThrow(AggregateError); expect(bad.close).toHaveBeenCalledWith(4404); expect(pending.close).toHaveBeenCalledWith(4404); expect(good.close).toHaveBeenCalledWith(4404);
   expect(first.leg.closed).toBe(true); expect(second.leg.closed).toBe(true);
   let drained=false; const drain=t.drain().then(()=>{drained=true;}); await Promise.resolve(); expect(drained).toBe(false); resolve({id:'d',enabled:true}); await drain; expect(drained).toBe(true);
+ });
+ it('drops expired pre-authentication PCM and preserves the arrival age of recent frames', async () => {
+   let now=0;
+   let resolve!:(device:{id:string;enabled:boolean})=>void;
+   const events=vi.fn();
+   const t=new MediaTransport(()=>new Promise(r=>{ resolve=r; }), events, ()=>now);
+   try {
+     const {leg}=t.provision('s','l',{kind:'device',deviceId:'d'});
+     const s=socket(), incoming=t.open(s,url,'Bearer fixture');
+     incoming.message(encodeMediaFrame({format:1,flags:0,seq:6,captureTs:2000,pcm:new Uint8Array(320)}),true);
+     now=600;
+     incoming.message(encodeMediaFrame({format:2,flags:0,seq:7,captureTs:2000,pcm:new Uint8Array(640)}),true);
+     now=900;
+     resolve({id:'d',enabled:true}); await t.drain();
+     expect(leg.format).toBe(2);
+     expect(t.status('s','l')).toEqual({attached:true,hasAttached:true,ready:true});
+     expect(s.close).not.toHaveBeenCalled();
+     expect(leg.jitter.size).toBe(1);
+     now=901;
+     expect(leg.jitter.pop(now)).toBeUndefined();
+     expect(leg.jitter.size).toBe(0);
+     now=2600;
+     expect(t.status('s','l').ready).toBe(false);
+     leg.checkStalled(t.now());
+     expect(events).toHaveBeenCalledExactlyOnceWith('s','l','media_stalled');
+   } finally { t.close(); }
+ });
+ it('does not treat only expired queued frames as evidence of a live attachment', async () => {
+   let now=0;
+   let resolve!:(device:{id:string;enabled:boolean})=>void;
+   const t=new MediaTransport(()=>new Promise(r=>{ resolve=r; }),undefined,()=>now);
+   try {
+     const {leg}=t.provision('s','l',{kind:'device',deviceId:'d'});
+     const incoming=t.open(socket(),url,'Bearer fixture');
+     incoming.message(frame(),true);
+     now=350; resolve({id:'d',enabled:true}); await t.drain();
+     expect(t.status('s','l')).toEqual({attached:true,hasAttached:true,ready:false});
+     expect(leg.format).toBeUndefined();
+     expect(leg.jitter.size).toBe(0);
+     incoming.message(frame(),true);
+     expect(t.status('s','l').ready).toBe(true);
+   } finally { t.close(); }
+ });
+ it.each(['device','browser'] as const)('checks the %s authentication deadline even before its timer runs', async (kind) => {
+   let now=0;
+   let resolve!:(device:{id:string;enabled:boolean})=>void;
+   const t=new MediaTransport(()=>new Promise(r=>{ resolve=r; }),undefined,()=>now);
+   try {
+     const {leg,mediaToken}=t.provision('s','l',kind==='device'?{kind,deviceId:'d'}:{kind});
+     const s=socket(), incoming=t.open(s,url,kind==='device'?'Bearer fixture':undefined);
+     now=5000;
+     if (kind==='device') { resolve({id:'d',enabled:true}); await t.drain(); }
+     else incoming.message(bytes({type:'auth',token:mediaToken}),false);
+     expect(s.close).toHaveBeenCalledExactlyOnceWith(4401);
+     expect(t.status('s','l')).toEqual({attached:false,hasAttached:false,ready:false});
+     expect(leg.format).toBeUndefined();
+   } finally { t.close(); }
  });
  it('closes unauthenticated sockets and rejects missing legs',()=>{
   vi.useFakeTimers(); try {const t=new MediaTransport(async()=>null); t.provision('s','l',{kind:'browser'}); const a=socket(), b=socket(); t.open(a,url); t.open(b,'/ws/media?session=x&leg=l'); expect(b.close).toHaveBeenCalledWith(4404); vi.advanceTimersByTime(5000); expect(a.close).toHaveBeenCalledWith(4401); t.close();} finally {vi.useRealTimers();}

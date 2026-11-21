@@ -1,9 +1,10 @@
 import { decodeMediaFrame, MEDIA_FLAGS } from '@voipgw/protocol';
 import type { MediaFormat, MediaFrame } from '@voipgw/protocol';
-import { JitterBuffer } from './jitter.js';
+import { JitterBuffer, withinPlayoutWindow } from './jitter.js';
 import { PcmResampler, SAMPLE_RATES } from './resample.js';
 
 export type LegKind = 'device' | 'browser' | 'adapter';
+const MEDIA_STALL_MS = 2_000;
 export class MediaLeg {
   readonly jitter = new JitterBuffer();
   format: MediaFormat | undefined;
@@ -11,6 +12,7 @@ export class MediaLeg {
   private outbound: PcmResampler | undefined;
   private failures: number[] = [];
   private lastFrame: number;
+  private acceptedFrame = false;
   private stalled = false;
   private sequence = 0;
   closed = false;
@@ -31,13 +33,25 @@ export class MediaLeg {
       this.inbound = new PcmResampler(SAMPLE_RATES[frame.format], 16000);
       this.outbound = new PcmResampler(16000, SAMPLE_RATES[frame.format]);
     }
-    this.lastFrame = now; this.stalled = false;
-    return this.jitter.push(frame, now);
+    if (!this.jitter.push(frame, now)) return false;
+    if (this.acceptedFrame && !withinPlayoutWindow(this.lastFrame, now)) {
+      this.inbound = new PcmResampler(SAMPLE_RATES[frame.format], 16000);
+    }
+    this.lastFrame = now; this.acceptedFrame = true; this.stalled = false;
+    return true;
   }
-  checkStalled(now: number): void { if (!this.closed && !this.stalled && now - this.lastFrame >= 2000) { this.stalled = true; this.event('media_stalled'); } }
-  read(): { pcm: Uint8Array; flags: number } {
+  ready(now: number): boolean {
+    return !this.closed && this.acceptedFrame && now >= this.lastFrame && now - this.lastFrame < MEDIA_STALL_MS;
+  }
+  checkStalled(now: number): void {
+    if (!this.closed && !this.stalled && now - this.lastFrame >= MEDIA_STALL_MS) {
+      this.stalled = true;
+      this.event('media_stalled');
+    }
+  }
+  read(now: number): { pcm: Uint8Array; flags: number } {
     if (this.closed) return { pcm: new Uint8Array(640), flags: MEDIA_FLAGS.silence };
-    const frame = this.jitter.pop();
+    const frame = this.jitter.pop(now);
     if (!frame || (frame.flags & MEDIA_FLAGS.silence)) {
       if (this.inbound && this.format) this.inbound.process(new Uint8Array(SAMPLE_RATES[this.format] / 50 * 2));
       return { pcm: new Uint8Array(640), flags: frame?.flags ?? MEDIA_FLAGS.silence };
@@ -56,7 +70,7 @@ export class MediaLeg {
   /** Reset stream state on reconnect while preserving leg identity and negotiated format. */
   resetConnection(now: number): void {
     if (this.closed) return;
-    this.jitter.clear(); this.sequence = 0; this.lastFrame = now; this.stalled = false;
+    this.jitter.clear(); this.sequence = 0; this.lastFrame = now; this.acceptedFrame = false; this.stalled = false;
     if (this.format !== undefined) {
       this.inbound = new PcmResampler(SAMPLE_RATES[this.format], 16000);
       this.outbound = new PcmResampler(16000, SAMPLE_RATES[this.format]);

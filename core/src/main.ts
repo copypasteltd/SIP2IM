@@ -300,7 +300,8 @@ transportLifecycle.defer(stopSessions,{critical:true});
 const ws=new WebSocketServer({noServer:true,maxPayload:65536});
 const wsCloser=websocketServerCloser(ws);
 transportLifecycle.defer(()=>wsCloser.wait(),{critical:true});
-const media=new MediaTransport(t=>binding.authenticate(t));
+const media=new MediaTransport(t=>binding.authenticate(t),
+ (sessionId, legId, event) => app.log.warn({ sessionId, legId, event }, 'Media leg diagnostic'));
 transportLifecycle.defer(async()=>{
   const errors:unknown[]=[];
   try { media.close(); } catch(error) { errors.push(error); }
