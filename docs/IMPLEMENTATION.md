@@ -79,6 +79,10 @@ Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系
 
 当前发布范围是管理端告警读回与最佳努力的实时通知。配对用户的 QQ/Telegram 告警转发和定期重推尚未接通。生产 PostgreSQL 和真实设备验收仍需独立完成。
 
+### 管理端连接恢复
+
+当前管理员会话为每次连接分别等待 WebSocket 打开和首个 `pong`，各 10 秒；打开后先发鉴权帧，再发 `ping`。首个及时应答前不显示已连接，也不消费业务提示。就绪后每 25 秒检查是否可以发心跳，最多一个 `ping` 等待应答。只有存在未应答的 `ping` 时接纳的 `pong` 才续期 60 秒有效窗口。打开和消息处理也按单调时钟复核截止，不依赖计时器准时执行。超时、错误或发送失败先注销本地连接、清理计时器，再尝试关闭底层连接；不等待 `close` 回调才重连。重连受会话版本和连接身份约束，等待 1、2、4、8、16、30 秒（封顶），及时收到首个应答才清零。恢复只请求一次查询缓存失效；刷新失败不代表连接断开，连接成功也不保证数据已刷新。不自动重新发起写入。旧连接的登录提示作废；在途或结果未知的操作保留原身份，按原操作核对。浏览器冻结期间不保证计时回调准时执行或唤醒系统。[管理连接](../web/src/realtime/admin-socket.ts)
+
 ### 平台适配器握手和通知
 
 - 当前 IPC 连接依次处理 `adapter.hello`、`capabilities`、`account.state`。初始能力仅暂存在 Core；首条账号状态与有效登录能力、既有登录观察标记及适用的渠道告警在同一行锁事务中写入，确认提交后才给最终状态正向 ACK。随后能力更新只保留有效登录位，平台收发消息、语音和并发通话能力均关闭。启动、替换和断开仍按原规则区分重置与已观测掉线。Core 的 IPC 就绪不代表已登录或账号身份已验证。[渠道存储](../core/src/channels/repo.ts) · [连接管理](../core/src/channels/adapter-manager.ts)
@@ -183,6 +187,10 @@ The single Core process periodically reconciles four device health alerts. An of
 The Alerts page reads and refreshes only its current page (50 records); the dashboard requests the five newest open alerts. Cursors preserve database microseconds and record IDs, and are bound to the selected state. They do not provide a cross-request snapshot: return to Latest to see records added before the cursor. The legacy request without `limit` and `cursor` continues to read all matching records. Upgrade Core before serving the new Web bundle; the new Web does not fall back to an unpaged read. The page size bounds returned rows, not database work; large production queries still need plan verification. Acknowledgement rechecks the original administrator session, updates an open alert, and writes the audit record in one transaction. Acknowledged does not mean recovered. After `TIMEOUT_UNKNOWN`, read the alert and audit log separately before any further action. [Alert repository](../core/src/alerts/admin-repo.ts)
 
 This release provides administrator readback and best-effort realtime events. Forwarding and periodic redelivery to paired QQ or Telegram users are not connected. Production PostgreSQL and physical-device acceptance remain separate.
+
+### Admin connection recovery
+
+Each attempt has separate ten-second windows for WebSocket open and the first `pong`. The client sends authentication before the first `ping` and neither reports readiness nor consumes business hints before the first timely response. Once ready, the 25-second heartbeat tick sends at most one unanswered `ping`; only a `pong` accepted while a ping is pending renews the 60-second freshness window. Open and message handling also check monotonic deadlines, so a delayed timer cannot admit a late response. Timeout, error, or send failure retires the local attempt and clears timers before best-effort socket close. Reconnect does not wait for `close` and is fenced by session version and socket identity. Delays are 1, 2, 4, 8, 16, then 30 seconds, capped; only a timely first response resets them. Recovery requests one query invalidation, not a confirmed readback or a replay of writes. Retired hints are discarded; the original identity of pending or uncertain operations is retained for reconciliation. A suspended browser may defer timers; this does not wake the system. [Admin socket](../web/src/realtime/admin-socket.ts)
 
 ### Adapter handshake and notifications
 

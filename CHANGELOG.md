@@ -4,11 +4,16 @@
 
 ## 简体中文
 
+### 2026-11-21 · Web 管理连接超时恢复
+
+- WebSocket 打开与首个 `pong` 分别限时 10 秒；后续心跳以 60 秒单调时钟窗口判断是否有效，只允许一个未应答的 `ping`。超时、错误或发送失败即在本地淘汰连接，不等旧连接的关闭回调，仍按 1–30 秒退避。[管理连接](web/src/realtime/admin-socket.ts)
+- 只有当前管理员会话与当前连接可以接纳提示。恢复后发起一次查询刷新，不重发写入；迟到的旧提示不能复用，已经提交但结果不明的操作仍需按原请求核对。协议、演示界面和原录屏未更改。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Android 队头确认超时退避
 
 - 握手只重置连接失败退避，不重置同一持久绑定和队头事件的确认超时。重复超时按 1、2、4、8、16、30 秒递增，封顶 30 秒；重连取连接退避与队头退避中较长的一个。只有确认删除原事件，或读到该绑定的队头已变或为空，才清除对应的队头退避。[退避实现](android/app/src/main/kotlin/io/voipgw/gateway/core/OutboxReconnectBackoff.kt)
 - 只有当前连接的匹配正向 ACK 且本地删除恰好一条记录，才推进队列。当前事件的超时回调主动退出原连接，仍需确认释放持久代次才重连；旧回调不能操作新连接。事件 ID、载荷、时间与 FIFO 不变。不跳过短信队头，不重复下发发送短信的命令。
-- 本轮 Core、Web、演示和录屏未改动，离线复验不等于真机接入。[验证记录](docs/VERIFICATION.md)
+- 本轮 Core、Web、演示和录屏未改动，离线复验不等于真机接入。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/7ebe4bdfddb0d32bf2465844879c91bbe8cd2d4d/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Android 握手超时恢复
 
@@ -97,11 +102,16 @@
 
 ## English
 
+### 2026-11-21 · Web admin connection timeout recovery
+
+- WebSocket open and the first `pong` have separate ten-second deadlines. Subsequent liveness uses a 60-second monotonic window with at most one unanswered `ping`. Timeout, error, or send failure retires the attempt locally without waiting for a close callback, then retries with 1–30 second backoff. [Admin socket](web/src/realtime/admin-socket.ts)
+- Only the current admin session and socket can accept hints. On recovery, Web asks for a query refresh once and never replays writes. Retired hints cannot be reused, and uncertain requests still require reconciliation under the original operation. The wire protocol, demo interface, and recording are unchanged. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Android backoff for unacknowledged queue heads
 
 - A successful hello resets only transport backoff. Repeated ACK timeouts for the same durable binding and event ratchet the queue-head delay through 1, 2, 4, 8, 16, and 30 seconds, capped at 30. Reconnect uses the longer delay. Confirmed deletion of the original event or a successful read of a different or empty head clears the streak. [Backoff policy](android/app/src/main/kotlin/io/voipgw/gateway/core/OutboxReconnectBackoff.kt)
 - Only a matching positive ACK on the current connection and a confirmed one-row deletion advance the queue. The live watchdog retires its own connection; retry still requires confirmed release of the durable generation. Stale callbacks cannot affect a replacement. FIFO, event ID, payload, and timestamp are unchanged. This does not skip a blocked SMS head or resubmit SMS commands.
-- Core, Web, and the existing synthetic demo and recording are unchanged. Offline checks do not establish handset behavior. [Verification](docs/VERIFICATION.md)
+- Core, Web, and the existing synthetic demo and recording are unchanged. Offline checks do not establish handset behavior. [Verification](https://github.com/copypasteltd/SIP2IM/blob/7ebe4bdfddb0d32bf2465844879c91bbe8cd2d4d/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Android handshake timeout recovery
 

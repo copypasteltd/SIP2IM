@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AppProviders } from './providers';
@@ -5,6 +6,7 @@ import { AppRouter } from './router';
 import { useSession } from '../stores/session';
 import { request } from '../api/client';
 import { useLoginSteps } from '../realtime/login-steps';
+import { RealtimeConnection, useConnection } from '../realtime/use-admin-socket';
 import i18n from '../i18n';
 
 class Socket {
@@ -12,8 +14,9 @@ class Socket {
   readyState = 1;
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
   close = vi.fn(() => this.onclose?.());
-  send = vi.fn();
+  send = vi.fn<(raw: string) => void>();
   constructor() { sockets.push(this); }
 }
 const sockets: Socket[] = [];
@@ -99,6 +102,33 @@ it('does not delete a replacement credential before its storage event is deliver
   expect(await old).toMatchObject({ status: 401 });
   expect(useSession.getState().session).toEqual(replacement);
   expect(localStorage.getItem('voip.session')).toBe(JSON.stringify(replacement));
+});
+
+it('does not revive an old realtime attempt when a batched session swap reuses the original object', () => {
+  const original = useSession.getState().session!;
+  const client = new QueryClient();
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  render(<QueryClientProvider client={client}><RealtimeConnection/></QueryClientProvider>);
+  const first = sockets[0], oldOpen = first.onopen!, oldMessage = first.onmessage!;
+  act(() => {
+    useSession.getState().setSession(session('replacement'));
+    useSession.getState().setSession(original);
+    oldOpen();
+    oldMessage({ data: JSON.stringify({ type: 'pong' }) });
+    oldMessage({ data: JSON.stringify({ type: 'sms.new' }) });
+    expect(first.send).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(useConnection.getState().state).toBe('disconnected');
+  });
+  expect(sockets).toHaveLength(2);
+  expect(first.close).toHaveBeenCalledOnce();
+  const current = sockets[1];
+  act(() => {
+    current.onopen?.();
+    current.onmessage?.({ data: JSON.stringify({ type: 'pong' }) });
+  });
+  expect(current.send.mock.calls.map(([raw]) => JSON.parse(raw).type)).toEqual(['auth', 'ping']);
+  expect(useConnection.getState().state).toBe('connected');
 });
 
 it('expires a mounted session without a navigation or a rejected API response', async () => {
