@@ -21,13 +21,13 @@ npm --prefix web run build --workspaces=false
 node tools/demo/server.mjs
 ```
 
-访问 [127.0.0.1:41730](http://127.0.0.1:41730/)，使用公开演示凭据 `demo / demo`。在仪表盘查看合成设备状态，在告警页查看离线记录，在设备页查看绑定记录并取消一条未使用的演示绑定码，在短信页查阅历史或向虚构号码 `+1 202 555 0111` 提交模拟短信。记录保存在内存中，重启恢复初始数据。Ctrl+C 停止。需要更换回环端口时添加 `--port 41731`。界面上的演示标识对应模拟结果。[演示入口](tools/demo/server.mjs) · [演示操作说明](tools/demo/README.md)
+访问 [127.0.0.1:41730](http://127.0.0.1:41730/)，使用公开演示凭据 `demo / demo`。在仪表盘查看合成设备状态，在告警页查看设备离线记录并确认一条合成渠道告警，在设备页查看绑定记录并取消一条未使用的演示绑定码，在短信页查阅历史或向虚构号码 `+1 202 555 0111` 提交模拟短信。记录保存在内存中，重启恢复初始数据。Ctrl+C 停止。需要更换回环端口时添加 `--port 41731`。界面上的演示标识对应模拟结果。[演示入口](tools/demo/server.mjs) · [演示操作说明](tools/demo/README.md)
 
-**演示录屏** · 使用本机 Chrome 捕获仪表盘、设备离线告警、取消未使用的绑定码和发送模拟短信的过程。画面中的设备、号码和状态均为合成数据。
+**演示录屏** · 使用本机 Chrome 捕获仪表盘、渠道告警确认、设备离线告警、取消未使用的绑定码和发送模拟短信的过程。画面中的设备、号码和状态均为合成数据。
 
 [仪表盘截图](docs/media/dashboard.png) · [告警截图](docs/media/alerts.png) · [绑定取消截图](docs/media/bindings.png) · [模拟短信截图](docs/media/sms.png) · [MP4 视频](docs/media/walkthrough.mp4) · [GIF 动图](docs/media/walkthrough.gif)
 
-![合成演示动图，依次展示仪表盘、设备告警、确认取消绑定码和发送模拟短信](docs/media/walkthrough.gif)
+![合成演示动图，依次展示仪表盘、渠道告警确认、绑定码取消和发送模拟短信](docs/media/walkthrough.gif)
 
 ### 架构概览
 
@@ -82,13 +82,13 @@ npm --prefix web run build --workspaces=false
 node tools/demo/server.mjs
 ```
 
-Open [127.0.0.1:41730](http://127.0.0.1:41730/) and sign in with the public demo credentials `demo / demo`. Check the synthetic device status on Dashboard, read the offline warning in Alerts, review and cancel an unused code under Devices → Binding records, and review history or submit a simulated message to fictional number `+1 202 555 0111` on Messages. Records live in memory and reset on restart. Stop with Ctrl+C. Use `--port 41731` to select a different loopback port. The banner identifies simulated results. [Demo entry point](tools/demo/server.mjs) · [Demo walkthrough](tools/demo/README.md)
+Open [127.0.0.1:41730](http://127.0.0.1:41730/) and sign in with the public demo credentials `demo / demo`. Check the synthetic device status on Dashboard, read the device warning and acknowledge a synthetic channel warning in Alerts, review and cancel an unused code under Devices → Binding records, and review history or submit a simulated message to fictional number `+1 202 555 0111` on Messages. Records live in memory and reset on restart. Stop with Ctrl+C. Use `--port 41731` to select a different loopback port. The banner identifies simulated results. [Demo entry point](tools/demo/server.mjs) · [Demo walkthrough](tools/demo/README.md)
 
-**Recorded walkthrough.** Native Chrome captured the dashboard, a device offline warning, cancellation of an unused binding code and a simulated SMS send. All displayed devices, numbers and states are synthetic.
+**Recorded walkthrough.** Native Chrome captured the dashboard, acknowledgement of a channel warning alongside an open device warning, cancellation of an unused binding code and a simulated SMS send. All displayed devices, numbers and states are synthetic.
 
 [Dashboard screenshot](docs/media/dashboard.png) · [Alert screenshot](docs/media/alerts.png) · [Binding cancellation screenshot](docs/media/bindings.png) · [Simulated SMS screenshot](docs/media/sms.png) · [MP4 video](docs/media/walkthrough.mp4) · [Animated GIF](docs/media/walkthrough.gif)
 
-![Synthetic walkthrough showing the dashboard, a device alert, binding-code cancellation and a simulated SMS send](docs/media/walkthrough.gif)
+![Synthetic walkthrough showing the dashboard, channel alert acknowledgement, binding-code cancellation and a simulated SMS send](docs/media/walkthrough.gif)
 
 ### Architecture at a glance
 

@@ -55,7 +55,7 @@ async function connect(url) {
       if (socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Local Chrome disconnected'));
       const id = ++next;
       return new Promise((ok, reject) => {
-        const timer = setTimeout(() => { pending.delete(id); reject(new Error('Timed out: ' + method)); }, 8000);
+        const timer = setTimeout(() => { pending.delete(id); reject(new Error('Timed out: ' + method)); }, method === 'Page.captureScreenshot' ? 20_000 : 8_000);
         pending.set(id, { ok, reject, timer, method });
         socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
@@ -109,6 +109,7 @@ try {
   assert.match(route, /^\/devtools\/browser\/[0-9a-f-]+$/);
   browser = await connect('ws://127.0.0.1:' + port + route);
   const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' });
+  await browser.send('Target.activateTarget', { targetId });
   const { sessionId } = await browser.send('Target.attachToTarget', { targetId, flatten: true });
   const send = (name, args) => browser.send(name, args, sessionId);
   await send('Page.enable');
@@ -145,20 +146,17 @@ try {
     await wait(sel => { const input = document.querySelector(sel); if (!input || input.disabled) return false; input.focus(); return document.activeElement === input; }, selector, selector);
     await send('Input.insertText', { text: value });
   }
-  const snapshot = async (name, format = 'png') => {
-    const { data } = await send('Page.captureScreenshot', { format, ...(format === 'jpeg' ? { quality: 80 } : {}), fromSurface: true });
-    await writeFile(join(work, name), Buffer.from(data, 'base64'), { flag: 'wx' });
+  // Do not fire a still image and an animation frame at the compositor together.
+  let captureTail = Promise.resolve();
+  const snapshot = (name, format = 'png') => {
+    const capture = captureTail.then(async () => {
+      const { data } = await send('Page.captureScreenshot', { format, ...(format === 'jpeg' ? { quality: 80 } : {}), fromSurface: true });
+      await writeFile(join(work, name), Buffer.from(data, 'base64'), { flag: 'wx' });
+    });
+    captureTail = capture;
+    return capture;
   };
 
-  capturing = true;
-  frames = (async () => {
-    while (capturing) {
-      const started = performance.now();
-      await snapshot('frame-' + String(++shot).padStart(5, '0') + '.jpg', 'jpeg');
-      await delay(Math.max(0, 1000 / fps - (performance.now() - started)));
-    }
-  })();
-  void frames.catch(() => {});
   const navigation = await send('Page.navigate', { url: origin + '/login', transitionType: 'typed' });
   if (navigation.errorText) throw new Error('Synthetic entry navigation failed: ' + navigation.errorText);
   try {
@@ -176,6 +174,15 @@ try {
     return true;
   }, 'language selector');
   await text('Sign in');
+  capturing = true;
+  frames = (async () => {
+    while (capturing) {
+      const started = performance.now();
+      await snapshot('frame-' + String(++shot).padStart(5, '0') + '.jpg', 'jpeg');
+      await delay(Math.max(0, 1000 / fps - (performance.now() - started)));
+    }
+  })();
+  void frames.catch(() => {});
   await delay(900);
   await enter('main.login input[autocomplete="username"]', 'demo');
   await enter('main.login input[autocomplete="current-password"]', 'demo');
@@ -189,8 +196,18 @@ try {
 
   await click('nav a[href="/alerts"]', 'Alerts');
   await locationIs('/alerts');
-  await wait(() => Array.from(document.querySelectorAll('main h2')).some(h => h.textContent.trim() === 'Device has gone offline'), 'localized fixture alert');
+  await wait(() => {
+    const cards = [...document.querySelectorAll('main article.panel')];
+    return cards[0]?.querySelector('h2')?.textContent?.trim() === 'Platform channel is unavailable' &&
+      cards.some(card => card.querySelector('h2')?.textContent?.trim() === 'Device has gone offline');
+  }, 'localized channel and device fixture alerts');
   await delay(650);
+  await click('main article.panel:first-of-type button', 'Acknowledge alert');
+  await wait(() => {
+    const card = document.querySelector('main article.panel:first-of-type');
+    return !!card && card.innerText.includes('Platform channel is unavailable') &&
+      card.innerText.includes('State: Acknowledged') && !card.querySelector('button');
+  }, 'channel alert acknowledgement readback');
   await snapshot('alerts.png');
   await delay(1400);
 
@@ -237,7 +254,7 @@ try {
   for (const name of names) {
     await writeFile(join(output, name), await readFile(join(work, name)), { flag: 'wx' });
   }
-  console.log('Verified synthetic dashboard, health alerts, binding cancellation and SMS; exported ' + shot + ' actual Chrome frames.');
+  console.log('Verified synthetic dashboard, alert acknowledgement, binding cancellation and SMS; exported ' + shot + ' actual Chrome frames.');
 } finally {
   capturing = false;
   await frames?.catch(() => {});

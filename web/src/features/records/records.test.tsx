@@ -123,4 +123,22 @@ it('retains loaded rows on refetch failure and retries the refresh',async()=>{
  await screen.findByText('Unable to load data. Try again later.');expect(screen.getByText('cached row')).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Retry'}));await screen.findByText('refreshed row');
 });
-it('acknowledges an open alert using its endpoint',async()=>{await i18n.changeLanguage('en');const f=vi.fn().mockImplementation((_url:string,options?:RequestInit)=>Promise.resolve(new Response(JSON.stringify({data:options?.method==='POST'?{}:[{id:'alr1',type:'offline',state:'open',subjectId:'dev',severity:'critical',lastAt:1}],nextCursor:null}),{status:200})));vi.stubGlobal('fetch',f);const client=new QueryClient({defaultOptions:{queries:{retry:false}}});render(<QueryClientProvider client={client}><RecordsPage kind="alerts"/></QueryClientProvider>);fireEvent.click(await screen.findByRole('button',{name:'Acknowledge alert'}));await waitFor(()=>expect(f.mock.calls.some(call=>call[0]==='/api/alerts/alr1/ack'&&call[1]?.method==='POST')).toBe(true));});
+it('reads back an acknowledged channel alert without showing it as resolved',async()=>{
+ await i18n.changeLanguage('en');
+ let state='open';
+ const fetchMock=vi.fn(async(_path:string,options?:RequestInit)=>{
+  if(options?.method==='POST')state='acked';
+  const alert={id:'alr1',type:'channel_down',state,subjectId:'telegram',severity:'warning',lastAt:1};
+  return new Response(JSON.stringify({data:options?.method==='POST'?alert:[alert],nextCursor:null}),{status:200});
+ });
+ vi.stubGlobal('fetch',fetchMock);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><RecordsPage kind="alerts"/></QueryClientProvider>);
+ const card=(await screen.findByRole('heading',{name:'Platform channel is unavailable'})).closest('article')!;
+ expect(within(card).getByText('State: Open')).toBeInTheDocument();
+ fireEvent.click(within(card).getByRole('button',{name:'Acknowledge alert'}));
+ expect(await within(card).findByText('State: Acknowledged')).toBeInTheDocument();
+ expect(within(card).queryByText('State: Resolved')).not.toBeInTheDocument();
+ expect(within(card).queryByRole('button',{name:'Acknowledge alert'})).not.toBeInTheDocument();
+ expect(fetchMock).toHaveBeenCalledWith('/api/alerts/alr1/ack',expect.objectContaining({method:'POST'}));
+});

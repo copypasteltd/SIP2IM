@@ -40,9 +40,18 @@ Core 在启动核对和周期维护中处理遗留状态、队列过期、退役
 
 自动化测试可显式注入按通话代次运行的内存设备夹具，覆盖过期连接、挂断匹配和媒体开启失败。普通设备模拟器的 Shizuku 状态保持不明。真实 Web 通话仍需要验收名单、实际设备控制和有效的双向音频。[内存通话夹具](../tools/device-simulator/README.md)
 
-### 设备健康告警
+### 设备健康与运维告警
 
-Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系过且已经超时的设备会触发离线告警。Shizuku 不可用和 SIM 锁定或缺失需要持续 60 秒的有效采样。缺少权限告警需要明确的短信权限拒绝。SIM 清单不可观测时，Android 仍可上报独立的短信权限，空清单保持非权威。过期或不明证据保留既有告警状态。确认告警保留历史，同一次故障期间继续抑制重复提示。观察到恢复后，新的故障才会再次提示。Core 在事务确认后推送变化，Web 告警列表每 30 秒回读。渠道、通话和平台告警仍待接入。[健康告警](../core/src/devices/health-alerts.ts) · [Web 告警列表](../web/src/features/records/records.tsx)
+Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系过且已经超时的设备会触发离线告警。Shizuku 不可用和 SIM 锁定或缺失需要持续 60 秒的有效采样。缺少权限告警需要明确的短信权限拒绝。SIM 清单不可观测时，Android 仍可上报独立的短信权限，空清单保持非权威。过期或不明证据保留既有告警状态。确认告警保留历史，同一次故障期间继续抑制重复提示。观察到恢复后，新的故障才会再次提示。Core 在事务确认后推送变化，Web 告警列表每 30 秒回读。[健康告警](../core/src/devices/health-alerts.ts) · [Web 告警列表](../web/src/features/records/records.tsx)
+
+| 运维告警 | 触发与恢复 |
+| --- | --- |
+| 渠道不可用 | 先前确认登录的渠道，经当前适配器报告离线、退出或封禁，或检测到意外断开。当上次 Core 异常中止而仍留下已登录状态时，启动核对也可打开告警。新连接初始化和正常关闭本身不视为掉线。后续核验登录后关闭故障。 [渠道状态](../core/src/channels/repo.ts) |
+| 通话失败或结果未知 | 定时单独读取已提交的通话结果，每个会话最多一条。接受明确失败或未知状态、以网络错误终止，以及实际蜂窝腿证据支持的未知结束。正常挂断、不接听和未执行的重启补偿不触发。确认后保持历史。 [通话告警](../core/src/calls/failure-alerts.ts) |
+| 协议不兼容 | 只记录可识别的版本不兼容握手，并复核启用设备和原凭据。有界诊断不参与连接准入。后续在当前连接发送兼容应答后才可解除；该应答是本机发送证据，不是远端回执。 [协议告警](../core/src/devices/protocol-alerts.ts) |
+| 自启失败 | 受信回环上报经设备映射和型号复核后，累计三次合格的失败。储存窗口 30 秒，短于 5 秒的失败间隔视为疑似重复；新序列或过期会重置计数。明确启动或已运行会解除，不改变 APK Binder 或媒体能力。因报文没有观察 ID 和源时间，无法排除延迟重放。 [自启上报](../core/src/devices/shizuku-report.ts) |
+
+当前发布范围是管理端告警读回与最佳努力的实时通知。配对用户的 QQ/Telegram 告警转发和定期重推尚未接通。生产 PostgreSQL 和真实设备验收仍需独立完成。
 
 ### 异常短信托管
 
@@ -102,9 +111,18 @@ Call controls recheck the administrator session, device connection and call stat
 
 Offline tests can inject a generation-aware in-memory device fixture to exercise replaced connections, exact hangup matching and failed media setup. The ordinary simulator reports Shizuku as unknown. Real Web calling still requires a verified allowlist, physical device control and working two-way audio. [In-memory call fixture](../tools/device-simulator/README.md)
 
-### Device health alerts
+### Device health and operational alerts
 
-The single Core process periodically reconciles four device health alerts. An offline alert requires a previously observed device and a confirmed timeout. Shizuku unavailability and a locked or absent SIM require 60 seconds of fresh unhealthy samples. A missing SMS permission requires an explicit denial. Android can still report SMS permissions when its SIM inventory is unknown, using an empty non-authoritative inventory. Stale or inconclusive evidence leaves the existing alert state in place. Acknowledgement preserves history and suppresses repeat warnings within the same incident. Confirmed recovery allows a later incident to raise a fresh alert. Core emits changes after commit and the Web alert list refetches every 30 seconds. Channel, call and platform alert integration remains pending. [Health alert reconciliation](../core/src/devices/health-alerts.ts) · [Web alert list](../web/src/features/records/records.tsx)
+The single Core process periodically reconciles four device health alerts. An offline alert requires a previously observed device and a confirmed timeout. Shizuku unavailability and a locked or absent SIM require 60 seconds of fresh unhealthy samples. A missing SMS permission requires an explicit denial. Android can still report SMS permissions when its SIM inventory is unknown, using an empty non-authoritative inventory. Stale or inconclusive evidence leaves the existing alert state in place. Acknowledgement preserves history and suppresses repeat warnings within the same incident. Confirmed recovery allows a later incident to raise a fresh alert. Core emits changes after commit and the Web alert list refetches every 30 seconds. [Health alert reconciliation](../core/src/devices/health-alerts.ts) · [Web alert list](../web/src/features/records/records.tsx)
+
+| Operational alert | Trigger and recovery |
+| --- | --- |
+| Channel unavailable | A previously confirmed login changes to offline, logged out, banned, or unexpectedly disconnected. Startup also reconciles a logged-in state left by an interrupted Core. An attachment reset or graceful shutdown alone does not prove loss. A confirmed subsequent login closes the incident. [Channel state](../core/src/channels/repo.ts) |
+| Failed or uncertain call | An independent periodic job reads committed call outcomes and inserts at most one warning per session. It accepts an explicit failed or unknown state, termination with a network error, or an unknown termination backed by a projected cellular leg. Normal hangup, no answer and an unarmed restart compensation do not qualify. Acknowledgement retains history. [Call alerts](../core/src/calls/failure-alerts.ts) |
+| Incompatible protocol | An identifiable incompatible hello is eligible only after verifying the enabled device and its original credential. Bounded diagnostics do not participate in admission. Recovery requires a compatible response sent on the current attachment; this is local send evidence, not a remote receipt. [Protocol alerts](../core/src/devices/protocol-alerts.ts) |
+| Shizuku autostart failed | Three qualifying failures from the authorized loopback reporter, with the device mapping and model checked. The observation window is 30 seconds. Failures less than five seconds apart are suppressed as likely duplicates. A serial change or expired observation resets the streak. Confirmed started or already running closes the incident without implying Android Binder or media readiness. The report lacks an observation ID or source timestamp, so delayed replay cannot be ruled out. [Host reports](../core/src/devices/shizuku-report.ts) |
+
+This release provides administrator readback and best-effort realtime events. Forwarding and periodic redelivery to paired QQ or Telegram users are not connected. Production PostgreSQL and physical-device acceptance remain separate.
 
 ### Exceptional SMS custody
 

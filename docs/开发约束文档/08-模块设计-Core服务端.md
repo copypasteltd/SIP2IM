@@ -203,12 +203,12 @@ notify.incoming、notify.missed、notify.busy_rejected、notify.sms_forward、no
 | shizuku_stopped | device | `callEnabled` 且新鲜证据确认 Shizuku 不可用，持续采样 60 秒 | 确认运行，或结束对该设备的相应监控 |
 | sim_not_ready | sim | 当前 SIM 锁定或缺失，持续有效采样 60 秒 | 确认就绪或 SIM 退役 |
 | sms_permission_missing | device | 快照明确显示缺少发送或接收短信权限 | 快照确认两项权限均已授予 |
-| channel_down | channel | 曾 logged_in 后变为 offline / banned / logged_out | logged_in |
-| call_failed | call_session | 会话以 failed / unknown 结束 | 否（确认即关闭） |
-| protocol_mismatch | device | /ws/device 4005 | 设备成功连接 |
-| shizuku_autostart_failed | device | 自启连续 3 次 failed | started |
+| channel_down | channel | 确认登录后观察到离线、封禁、登出或异常断开；启动时也核对异常退出遗留的已登录状态 | 确认登录 |
+| call_failed | call_session | 已持久化的明确失败、未知状态或有技术故障证据的结束，每个会话最多一条 | 否（确认即关闭） |
+| protocol_mismatch | device | 有效设备及凭据的可识别不兼容握手，`4005` 不延迟 | 当前兼容连接发出 `hello.ok` |
+| shizuku_autostart_failed | device | 经授权映射的回环上报累计三次合格失败，短间隔抑制；观测过期重新计数 | `started` 或 `already_running` |
 
-同一 `(type, subject_id)` 最多保留一条开放告警。已实现的设备健康告警在同一次故障内保留已确认记录并抑制重复。确认不会改变设备状态。有效的恢复观测会结束故障，随后出现的独立故障记录新告警。 Core 提交事务后向管理员连接推送变化，Web 每 30 秒读回。原设计中的配对用户推送和其余告警类型待接入。
+同一 `(type, subject_id)` 最多保留一条开放告警。可恢复规则把已确认记录保留在同一故障内，直到收到有效恢复；通话告警确认后不重开。确认不会改变业务状态。Core 提交后向管理连接尽力通知变化，Web 每 30 秒读回。原设计中的配对用户推送与定期重试仍待接入。
 
 ### 3.13 settings
 

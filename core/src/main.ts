@@ -18,6 +18,8 @@ import { AdminSessions } from './ws-admin/session.js';
 import { AdminHub } from './ws-admin/hub.js';
 import { DeviceStatusRepository } from './devices/repo.js';
 import { DeviceHealthAlerts } from './devices/health-alerts.js';
+import { DeviceProtocolAlerts } from './devices/protocol-alerts.js';
+import type { AlertEvent } from './alerts/episodes.js';
 import { DeviceEvents } from './devices/events.js';
 import {makeDeviceEventProducer,type DeviceEventEnvelope} from './devices/event-producer.js';
 import { DeviceAdminRepository } from './devices/admin-repo.js';
@@ -50,6 +52,7 @@ import { registerChannelControlRoutes } from './channels/control-routes.js';
 import { CallReadRepository } from './calls/read-repo.js';
 import { RejectIntentWorker } from './calls/device-events.js';
 import { reconcileCalls } from './calls/reconcile.js';
+import { CallFailureAlerts } from './calls/failure-alerts.js';
 import { registerSettingsPut } from './settings/routes.js';
 import { registerOperations } from './http/operations.js';
 import { registerWebCallRoutes } from './http/web-calls.js';
@@ -123,9 +126,6 @@ const app=createServer({inspectSmsIdempotency:key=>new SmsIdempotencyRepository(
   },
   health:async()=>{try{await pool.query('SELECT 1');return true;}catch{return false;}},adapterHealth:()=>({qq:adapterRuntime?.manager.status('qq')??'unknown',telegram:adapterRuntime?.manager.status('telegram')??'unknown'}),getSettings:()=>settings.get(),listChannels:()=>channels.list(),listCalls:f=>calls.list(f),callDetail:id=>calls.detail(id),callSummary:id=>calls.summary(id),callEvents:(id,limit,cursor)=>calls.eventPage(id,limit,cursor),listSms:f=>smsHistory.list(f),historyDevices:f=>smsHistoryOptions.devices(f),historySims:f=>smsHistoryOptions.sims(f),listThreads:(id,limit,cursor)=>smsHistory.threads(id,limit,cursor),createSms:async(key,simId,to,body)=>{const result=await smsCreate.create(key,simId,to,body);if(result&&!result.conflict)smsRateRuntime?.request(result.deviceId);return result;},setSimNumber:(id,number,kind,expectedNumber)=>simRepo.setNumber(id,number,kind,expectedNumber),reviewSim:async id=>{if(!await simRepo.review(id))return null;const row=await pool.query<{device_id:string}>('SELECT device_id FROM sim WHERE id=$1 AND retired_at IS NULL',[id]);const deviceId=row.rows[0]?.device_id;if(!deviceId)return null;const device=await deviceAdmin.get(deviceId) as {sims:{id:string}[]}|null;return device?.sims.find(s=>s.id===id)??null;},probeDevice:async id=>{const r=await pool.query('SELECT online,enabled,paused FROM device WHERE id=$1 AND revoked_at IS NULL',[id]);const d=r.rows[0] as {online:boolean;enabled:boolean;paused:boolean}|undefined;if(!d||!d.online)return 'DEVICE_OFFLINE';if(!d.enabled||d.paused)return 'DEVICE_DISABLED';try{assertAdmission();const ack=await commands.send(id,'probe.run',{items:['smsSend','smsReceive','dial','answer','hangup','dtmf','downlink','uplink','earlyMedia']});return ack.ok?'ok':'DEVICE_DISABLED';}catch{return 'TIMEOUT_UNKNOWN';}},listDevices:f=>deviceAdmin.page(f),deviceDetail:id=>deviceDetail.get(id),revokeDevice:id=>deviceOperations.revokeDevice(id),updateDevice:(id,patch)=>deviceOperations.updateDevice(id,patch),publicHost:config.server.public_host,port:config.server.port});
 closeApp=()=>app.close();
-if (shizuku) {
-  registerShizukuReport(app, shizuku, (id, report) => setShizukuAutostart(pool, id, report), () => !stopping.aborted);
-}
 if (custodyAdmin !== undefined) {
   registerRecoverableSmsQuarantineInventory(app, {
     authenticate: token => auth.authenticate(token),
@@ -148,6 +148,13 @@ const hub = new AdminHub(token => auth.authenticate(token));
 lifecycle.defer(() => hub.stop(), { critical: true });
 const notifyDevice = (id: string) => hub.publishLatest('device.updated', () => deviceAdmin.get(id));
 const healthAlerts = new DeviceHealthAlerts(pool);
+const callFailureAlerts = new CallFailureAlerts(pool);
+const publishOperationalAlert = (type: AlertEvent['type'], data: unknown) =>
+  stopping.aborted ? Promise.resolve() : hub.publish(type, data);
+if (shizuku) {
+  registerShizukuReport(app, shizuku, (id, report) =>
+    setShizukuAutostart(pool, id, report, event => publishOperationalAlert(event.type, event.data)), () => !stopping.aborted);
+}
 const notifyAlert = (id: string) => hub.publishLatest('alert.raised', async () => {
   const result = await pool.query(`SELECT id,type,subject_type AS "subjectType",subject_id AS "subjectId",severity,state,detail,
     floor(extract(epoch from first_at)*1000)::double precision AS "firstAt",
@@ -263,7 +270,7 @@ registerChannelControlRoutes(app, loginOperations, token => auth.authenticate(to
 });
 const rejectWorker=new RejectIntentWorker(pool);
 transportLifecycle.defer(()=>rejectWorker.stop(),{critical:true});
-const sessions=new DeviceSessions({authenticate:t=>binding.authenticate(t),heartbeatSec:30,locale:'zh-CN',currentConfig:async()=>{const s=await settings.get();return {heartbeatSec:s.heartbeatSec,locale:s.botLocale};},commands,heartbeat:async(id,payload,ts)=>{const result=await status.heartbeat(id,payload as Record<string,unknown>,ts);if(!result.accepted || stopping.aborted)return;smsRateRuntime?.request(id);await notifyDevice(id);},onEvent:(id,event,context)=>stopping.aborted ? Promise.resolve(false) : makeDeviceEventProducer({handle:async(device,e)=>{const outcome=await events.handle(device,e,context);if (outcome === 'inserted' && (e.type === 'call.incoming' || e.type === 'call.state')) {
+const sessions=new DeviceSessions({protocolAlerts:new DeviceProtocolAlerts(pool, assertAdmission, publishOperationalAlert),authenticate:t=>binding.authenticate(t),heartbeatSec:30,locale:'zh-CN',currentConfig:async()=>{const s=await settings.get();return {heartbeatSec:s.heartbeatSec,locale:s.botLocale};},commands,heartbeat:async(id,payload,ts)=>{const result=await status.heartbeat(id,payload as Record<string,unknown>,ts);if(!result.accepted || stopping.aborted)return;smsRateRuntime?.request(id);await notifyDevice(id);},onEvent:(id,event,context)=>stopping.aborted ? Promise.resolve(false) : makeDeviceEventProducer({handle:async(device,e)=>{const outcome=await events.handle(device,e,context);if (outcome === 'inserted' && (e.type === 'call.incoming' || e.type === 'call.state')) {
     void hub.publishLatest('call.updated', () => calls.summaryForEvent(e.id)).catch(() => {});
   }
   if (e.type === 'sms.received' && (outcome === 'quarantined' || outcome === 'rejected')) void notifyAlert(e.id).catch(() => {});return outcome;},incomingSms:flushIncoming,taskUpdated:async()=>flushSmsTasks()})(id,event as DeviceEventEnvelope)});
@@ -330,6 +337,11 @@ const presence=new TrackedInterval(10000,[
   async()=>{if (!stopping.aborted && await smsQueue.failRetired()) flushSmsTasks();},
   ()=>stopping.aborted ? undefined : activeSmsRateRuntime.refresh(),
   ()=>stopping.aborted ? undefined : maintenanceInvalidation.flush(),
+  async () => {
+    if (stopping.aborted) return;
+    try { await callFailureAlerts.sweep(assertAdmission, publishOperationalAlert); }
+    catch (error) { if (!stopping.aborted) throw error; }
+  },
   async () => {
     if (stopping.aborted) return;
     const { offlineAfterSec } = await settings.get();

@@ -367,10 +367,9 @@ export function makeDemoApi({ now = Date.now, port = DEFAULT_PORT, onEvent = () 
     if (method === 'POST') {
       const id = /^\/api\/alerts\/([^/]+)\/ack$/.exec(path)?.[1];
       const alert = state.alerts.find(item => item.id === id);
-      if (alert) {
+      if (alert?.state === 'open') {
         alert.state = 'acked';
-        note('alert.resolved', { id });
-        return ok();
+        return data(alert);
       }
     }
     return missing();

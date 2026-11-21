@@ -438,7 +438,11 @@
     "device_offline": "设备已离线",
     "shizuku_stopped": "Shizuku 不可用",
     "sim_not_ready": "SIM 未就绪",
-    "sms_permission_missing": "缺少短信权限"
+    "sms_permission_missing": "缺少短信权限",
+    "channel_down": "平台渠道不可用",
+    "call_failed": "通话失败或结果未知",
+    "protocol_mismatch": "设备协议不兼容",
+    "shizuku_autostart_failed": "Shizuku 自启失败"
   },
   "records": {
     "kind": "类型",

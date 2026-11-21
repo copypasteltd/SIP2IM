@@ -122,7 +122,7 @@ test('exposes public health, guards admin data, and revokes demo sessions', asyn
   const dashboard = data(await get('/api/dashboard'));
   assert.deepEqual(dashboard.devices, { total: 3, online: 2, offline: 1, paused: 1, byLevel: { L1: 2, L2: 1, L3: 0, L4: 0, L5: 0 } });
   assert.deepEqual(dashboard.capability, { smsReady: 1, callReady: 0, inCall: 0 });
-  assert.equal(dashboard.alerts.open, 1);
+  assert.equal(dashboard.alerts.open, 2);
   assert.equal(data(await get('/api/devices?online=false&q=field')).length, 1);
   const firstPage = await get('/api/devices?limit=1');
   const nextCursor = firstPage.json().nextCursor;
@@ -130,6 +130,22 @@ test('exposes public health, guards admin data, and revokes demo sessions', asyn
   assert.notEqual(data(firstPage)[0].id, data(await get('/api/devices?limit=1&cursor=' + nextCursor))[0].id);
   assert.equal((await request('/api/auth/logout', { token, method: 'POST' })).code, 200);
   error(await get('/api/dashboard'), 401, 'UNAUTHORIZED');
+});
+
+test('acknowledges a synthetic channel alert without claiming recovery', async t => {
+  const { request, signedIn } = await harness(t);
+  const token = await signedIn();
+  const get = path => request(path, { token });
+  const active = data(await get('/api/alerts?state=open'));
+  const target = active.find(alert => alert.type === 'channel_down');
+  assert.ok(target);
+  const path = '/api/alerts/' + target.id + '/ack';
+  const post = () => request(path, { token, method: 'POST' });
+  const acked = data(await post());
+  assert.deepEqual(acked, { ...target, state: 'acked' });
+  assert.deepEqual(data(await get('/api/alerts?state=acked')), [acked]);
+  assert.equal(data(await get('/api/alerts?state=open')).length, active.length - 1);
+  error(await post(), 404, 'NOT_FOUND');
 });
 
 test('issues and cancels v2 admin records without exposing codes in inventory', async t => {

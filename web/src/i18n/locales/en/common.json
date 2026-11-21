@@ -438,7 +438,11 @@
     "device_offline": "Device has gone offline",
     "shizuku_stopped": "Shizuku is unavailable",
     "sim_not_ready": "SIM is not ready",
-    "sms_permission_missing": "SMS permission missing"
+    "sms_permission_missing": "SMS permission missing",
+    "channel_down": "Platform channel is unavailable",
+    "call_failed": "Call failed or outcome is unknown",
+    "protocol_mismatch": "Device protocol is incompatible",
+    "shizuku_autostart_failed": "Shizuku autostart failed"
   },
   "records": {
     "kind": "Kind",

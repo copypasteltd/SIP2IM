@@ -90,6 +90,20 @@ describe('adapter integration',()=>{
     expect(runtime.manager.loginStep('qq')).toEqual({step:'code',qrPngBase64:null,hint:'enter code'});
     a.connection.close();await tick();expect(rows.qq.state).toBe('offline');expect(runtime.manager.loginStep('qq')).toBeNull();await runtime.close();
   });
+  it('separates startup reconciliation, attachment reset and observed disconnect',async()=>{
+    const {runtime,repo,peer,publish}=setup();
+    const offline=vi.mocked(repo.adapterOffline);
+    await runtime.start();
+    expect(offline).toHaveBeenCalledWith('qq',{observeOutage:'persisted-login'});
+    const a=peer('qq');a.connection.data(hello('qq'));a.connection.data(capability(2));
+    a.connection.data(state('fixture',3));await tick();
+    expect(offline).toHaveBeenCalledWith('qq',{observeOutage:false,isCurrent:expect.any(Function)});
+    offline.mockResolvedValueOnce({type:'alert.raised',data:{id:'fixture'}});
+    a.connection.close();await tick();
+    expect(offline).toHaveBeenCalledWith('qq',{observeOutage:true,isCurrent:expect.any(Function)});
+    expect(publish).toHaveBeenCalledWith('alert.raised',{id:'fixture'});
+    await runtime.close();
+  });
   it('rejects new attachments and starts as soon as shutdown begins',async()=>{
     const {runtime,peer}=setup(); await runtime.start(); const active=peer('qq'); active.connection.data(hello('qq')); await tick();
     const closing=runtime.close(); const socket={write:vi.fn(),destroy:vi.fn()};

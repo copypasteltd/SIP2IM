@@ -102,7 +102,7 @@
 | C-CALL-06 | platform_out 会话（先拨蜂窝、回拨来源平台、三种计时、进度回复、早期媒体/提示语音） | C-CALL-05, C-CMD-01, C-MED-04, C-SIM-01 | FR-OUT-01～08 | K08 §3.7 | TC-OUT-01～10（假设备 + 假适配器） | TODO |
 | C-SMS-05 | 短信转发两平台（可关闭） | C-SMS-01, C-NOT-01 | FR-SMS-07 | K08 §3.4 | TC-SMS-08 | TODO |
 | C-SMS-06 | 短信命令（P1，受短信限速） | C-SMS-02, C-CMD-01 | FR-SMS-08 | K08 §3.10 | TC-SMS-09 | TODO |
-| C-ALR-01 | 告警规则（K08 §3.12 全部类型）、去重、推送、/api/alerts 与确认 | C-DEV-03, C-CH-01, C-NOT-01 | FR-OPS-01 | K08 §3.12 | TC-OPS-01（设备离线、Shizuku、SIM 和短信权限已通过离线回归。其余规则及平台推送待接入） | DOING |
+| C-ALR-01 | 告警规则（K08 §3.12 全部类型）、去重、推送、/api/alerts 与确认 | C-DEV-03, C-CH-01, C-NOT-01 | FR-OPS-01 | K08 §3.12 | TC-OPS-01（八类告警规则及管理端确认已接入；待 PostgreSQL 验收与配对用户推送） | DOING |
 | C-DASH-01 | /api/dashboard | C-DEV-05, C-SIM-01, C-CH-01, C-ALR-01 | FR-ADM-02 | K08 §5 | 统计数值测试 | TODO |
 | C-CMDQ-01 | /api/commands | C-CALL-06 | FR-ADM-03 | K05 §6.2 | 分页测试 | TODO |
 | C-INT-01 | 内部接口：/internal/shizuku-autostart（来源校验、serial 关联）与 G0 测试模式 /internal/probe/call、probe_answer_inbound | C-DEV-03, C-CALL-03 | FR-DEV-10 | K05 §6.5 | 非 127.0.0.1 请求被拒；probe_api=false 时接口 404 | TODO |

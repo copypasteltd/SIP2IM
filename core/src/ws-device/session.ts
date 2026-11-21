@@ -1,15 +1,39 @@
-import { parseDeviceMessage } from '@voipgw/protocol';
+import { id, parseDeviceMessage, timestamp } from '@voipgw/protocol';
 import { ulid } from 'ulid';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { tokenHash } from '../auth/service.js';
+import type { DeviceProtocolAlertObserver, DeviceProtocolObservation } from '../devices/protocol-alerts.js';
 import type {DeviceCommands} from './commands.js';
 
-export interface DeviceSocket { send(data:string):void; close(code:number):void }
+// The normal hello parser still owns admission. Only identify a 4005 from a
+// recognizable hello carrying an explicit, unsupported protocol major.
+const mismatchHello = z.object({
+  v: z.literal(1), type: z.literal('hello'), id: id('evt'), ts: timestamp,
+  payload: z.object({ token: z.string().min(1), protocol: z.number().int().nonnegative().refine(major => major !== 1) }),
+});
+const HELLO_TIMEOUT_MS = 5_000;
+const OBSERVATION_WINDOW_MS = 5_000;
+const MAX_MISMATCH_CHECKS = 2;
+const MAX_PROTOCOL_OBSERVATIONS = 32;
+
+export interface DeviceSocket { send(data:string):void; close(code:number):void; readonly readyState?: number }
+const socketIsOpen = (socket: DeviceSocket) => socket.readyState === undefined || socket.readyState === 1; // WebSocket.OPEN
 export interface AuthenticatedDeviceEventContext {
   callGeneration: boolean;
   connectionId: string;
   isCurrent(): boolean;
 }
-export interface DeviceSessionDeps { authenticate(token:string):Promise<{id:string;enabled:boolean}|null>; heartbeat(id:string,payload:unknown,observedAt:number):Promise<void>; onEvent(id:string,event:unknown,context:AuthenticatedDeviceEventContext):Promise<boolean>; heartbeatSec:number; locale:string; currentConfig?:()=>Promise<{heartbeatSec:number;locale:string}>; commands?:DeviceCommands }
+export interface DeviceSessionDeps {
+  authenticate(token: string): Promise<{ id: string; enabled: boolean } | null>;
+  heartbeat(id: string, payload: unknown, observedAt: number): Promise<void>;
+  onEvent(id: string, event: unknown, context: AuthenticatedDeviceEventContext): Promise<boolean>;
+  heartbeatSec: number;
+  locale: string;
+  currentConfig?: () => Promise<{ heartbeatSec: number; locale: string }>;
+  commands?: DeviceCommands;
+  protocolAlerts?: DeviceProtocolAlertObserver;
+}
 
 interface SessionState {
   socket: DeviceSocket;
@@ -48,7 +72,51 @@ export class DeviceSessions {
   private stopping = false;
   private readonly cleanupErrors: unknown[] = [];
   private stopPromise?: Promise<void>;
+  // One bounded alert writer, independent of device traffic and attachment replacement.
+  private protocolTail = Promise.resolve();
+  private pendingProtocolObservations = 0;
+  private mismatchChecks = 0;
+  private protocolSequence = 0;
+  // Keep confirmation history only while a rejected hello is being observed.
+  private readonly latestCompatible = new Map<string, number>();
   constructor(private readonly deps:DeviceSessionDeps) {}
+
+  private revokedSince(deviceId: string, epoch: number): 4010 | 4011 | undefined {
+    const latest = this.revocations.get(deviceId);
+    return latest && latest.epoch > epoch ? latest.code : undefined;
+  }
+
+  private queueProtocolObservation(kind: DeviceProtocolObservation['kind'], deviceId: string, token: string,
+    isEligible: () => boolean, until = performance.now() + OBSERVATION_WINDOW_MS): Promise<void> | undefined {
+    const observer = this.deps.protocolAlerts;
+    const isCurrent = () => !this.stopping && performance.now() < until && isEligible();
+    if (!observer || this.pendingProtocolObservations >= MAX_PROTOCOL_OBSERVATIONS || !isCurrent()) return;
+    const credentialHash = tokenHash(token);
+    this.pendingProtocolObservations++;
+    const work = this.protocolTail.then(async () => {
+      if (isCurrent()) await observer.observe({ kind, deviceId, credentialHash, isCurrent });
+    }).catch(() => {
+      // Diagnostic failure is not a wire error or evidence of a changed episode.
+    }).finally(() => { this.pendingProtocolObservations--; });
+    this.protocolTail = work;
+    return work;
+  }
+
+  private async observeMismatch(token: string, authEpoch: number): Promise<void> {
+    // The 4005 has already been sent. Do not let rejected sockets fill the auth pool.
+    if (this.stopping || this.mismatchChecks >= MAX_MISMATCH_CHECKS) return;
+    this.mismatchChecks++;
+    const sequence = ++this.protocolSequence;
+    const until = performance.now() + OBSERVATION_WINDOW_MS;
+    try {
+      const device = await this.deps.authenticate(token);
+      if (!device?.enabled) return;
+      await this.queueProtocolObservation('mismatch', device.id, token, () =>
+        !this.revokedSince(device.id, authEpoch) && (this.latestCompatible.get(device.id) ?? 0) < sequence, until);
+    } catch {
+      // An unavailable authority is not mismatch evidence.
+    } finally { if (--this.mismatchChecks === 0) this.latestCompatible.clear(); }
+  }
 
   private detach(state: SessionState): void {
     state.closed = true;
@@ -86,7 +154,7 @@ export class DeviceSessions {
       state.timer = undefined;
     }
     this.stopPromise = (async () => {
-      const results = await Promise.allSettled(states.map(state => state.queue));
+      const results = await Promise.allSettled([...states.map(state => state.queue), this.protocolTail]);
       const errors: unknown[] = results.filter(r => r.status === 'rejected').map(r => (r as PromiseRejectedResult).reason);
       for (const state of states) {
         const wasClosed = state.closed;
@@ -113,7 +181,7 @@ export class DeviceSessions {
         this.detach(state);
         socket.close(4001);
       }
-    }, 5000);
+    }, HELLO_TIMEOUT_MS);
     const closeWith = (code:number) => { this.detach(state); socket.close(code); };
     return {
       close: () => this.detach(state),
@@ -131,7 +199,13 @@ export class DeviceSessions {
             try { value = JSON.parse(raw); } catch { closeWith(4003); return; }
             if (!state.deviceId) {
               const candidate=value as {payload?:{protocol?:unknown}};
-              if (candidate?.payload?.protocol !== 1) { closeWith(4005); return; }
+              if (candidate?.payload?.protocol !== 1) {
+                const observation = this.deps.protocolAlerts ? mismatchHello.safeParse(value) : null;
+                const authEpoch = this.revocationEpoch;
+                closeWith(4005);
+                if (observation?.success) await this.observeMismatch(observation.data.payload.token, authEpoch);
+                return;
+              }
               let msg;
               try { msg=parseDeviceMessage(value,'event'); } catch { closeWith(4003); return; }
               if (msg.type !== 'hello') { closeWith(4003); return; }
@@ -141,7 +215,7 @@ export class DeviceSessions {
               if (state.closed) return;
               if (!device) { closeWith(4003); return; }
               if (!device.enabled) { closeWith(4011); return; }
-              const revoked = () => { const entry=this.revocations.get(device.id); return entry && entry.epoch > authEpoch ? entry.code : undefined; };
+              const revoked = () => this.revokedSince(device.id, authEpoch);
               const revokedDuringAuth=revoked();
               if (revokedDuringAuth) { closeWith(revokedDuringAuth); return; }
               if ((this.latestAuthenticated.get(device.id) ?? 0) > admission) { closeWith(4009); return; }
@@ -179,8 +253,16 @@ export class DeviceSessions {
                 const { callGeneration, connectionId, isCurrent } = state.eventContext;
                 if (callGeneration) this.deps.commands?.attach(device.id, socket, { connectionId, current: isCurrent });
                 else this.deps.commands?.attach(device.id, socket);
-                if (!state.closed && this.active.get(device.id) === socket && this.activeGenerations.get(device.id) === admission)
+                if (isCurrent()) {
+                  const wasOpen = socketIsOpen(socket);
                   socket.send(JSON.stringify({v:1,type:'hello.ok',id:'cmd_'+ulid(),ts:Date.now(),payload:{deviceId:device.id,serverTime:Date.now(),config}}));
+                  const confirmed = () => isCurrent() && socketIsOpen(socket);
+                  if (wasOpen && confirmed()) {
+                    // Compare actual confirmation with rejection, not order of hello arrival or auth.
+                    if (this.mismatchChecks > 0) this.latestCompatible.set(device.id, ++this.protocolSequence);
+                    this.queueProtocolObservation('compatible', device.id, hello.token, confirmed);
+                  }
+                }
               });
               return;
             }

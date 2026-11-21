@@ -107,6 +107,7 @@ export function seedDemo(at) {
         deviceId: null, cancelledAt: null, protocolVersion: null, teardownPending: false },
     ],
     alerts: [
+      { id: fixtureId('alr', 2), type: 'channel_down', subjectType: 'channel', subjectId: 'telegram', severity: 'warning', state: 'open', firstAt: at - 16 * minute, lastAt: at - 16 * minute, detail: {}, pushedAt: null, resolvedAt: null },
       { id: fixtureId('alr', 1), type: 'device_offline', subjectType: 'device', subjectId: devices[2].id, severity: 'warning', state: 'open', firstAt: at - 182 * minute, lastAt: at - 182 * minute, detail: {}, pushedAt: null, resolvedAt: null },
     ],
     commands: [

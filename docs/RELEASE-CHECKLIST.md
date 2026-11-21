@@ -52,9 +52,9 @@ python -B -m unittest discover -s tools -p test_sms_intent_model.py -v
 
 ### Demo capture / 演示录制
 
-For an authorized capture, use a fresh synthetic demo on port `41730`, a same-origin Web build, the installed local `ws` package, native Chrome and FFmpeg. Run the capture from the repository root with the Chrome executable and a new project-relative directory. Compare the captured states with the expected dashboard, device alert, binding cancellation and simulated send before replacing published files. [Capture script](../tools/demo/capture.mjs) · [Demo commands](../README.md#quick-demo)
+For an authorized capture, use a fresh synthetic demo on port `41730`, a same-origin Web build, the installed local `ws` package, native Chrome and FFmpeg. Run the capture from the repository root with the Chrome executable and a new project-relative directory. Compare the captured states with the expected dashboard, channel acknowledgement, open device alert, binding cancellation and simulated send before replacing published files. [Capture script](../tools/demo/capture.mjs) · [Demo commands](../README.md#quick-demo)
 
-经授权录制时，使用 `41730` 端口上新启动的合成演示、同源 Web 构建、本地 `ws` 包、原生 Chrome 和 FFmpeg。在仓库根目录向录制脚本传入 Chrome 程序路径和新的仓库相对目录。检查仪表盘、设备告警、绑定取消和模拟发送的结果后，再更新发布素材。[录制脚本](../tools/demo/capture.mjs) · [演示命令](../README.md#快速演示)
+经授权录制时，使用 `41730` 端口上新启动的合成演示、同源 Web 构建、本地 `ws` 包、原生 Chrome 和 FFmpeg。在仓库根目录向录制脚本传入 Chrome 程序路径和新的仓库相对目录。检查仪表盘、渠道告警已确认、设备告警仍未处理、绑定取消和模拟发送的结果后，再更新发布素材。[录制脚本](../tools/demo/capture.mjs) · [演示命令](../README.md#快速演示)
 
 ```sh
 node tools/demo/capture.mjs "path/to/chrome" docs/media-review

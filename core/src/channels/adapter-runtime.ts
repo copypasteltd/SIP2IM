@@ -1,12 +1,14 @@
 import { AdapterIpcListener, type AdapterTransportSocket, type AdapterTransportHandlers } from '../adapters/ipc-listener.js';
 import { AdapterManager, UnsupportedAdapterEvent } from './adapter-manager.js';
+import type { AlertEvent } from '../alerts/episodes.js';
+import type { ChannelObservationOptions } from './repo.js';
 
 type Platform = 'qq' | 'telegram';
 type State = { state: string; selfId: string | null; alias: string | null };
 export interface AdapterRuntimeRepository {
   list(): Promise<unknown[]>;
-  adapterOffline(platform: Platform): Promise<void>;
-  adapterState(platform: Platform, state: State): Promise<void>;
+  adapterOffline(platform: Platform, options?: ChannelObservationOptions): Promise<AlertEvent | null | void>;
+  adapterState(platform: Platform, state: State, options?: { isCurrent?: () => boolean }): Promise<AlertEvent | null | void>;
   adapterCapabilities(platform: Platform, capabilities: unknown): Promise<void>;
 }
 type Listener = { start(): Promise<void>; close(): Promise<void> };
@@ -38,7 +40,9 @@ export class AdapterRuntime {
         this.startupCapabilities.set(platform, null);
         const initialization = this.enqueue(platform, async () => {
           if (!this.current(platform, generation)) return;
-          await options.repository.adapterOffline(platform);
+          // An attachment reset by itself is not an observed outage. A later
+          // report or disconnect can settle the previous confirmed login.
+          await options.repository.adapterOffline(platform, { observeOutage: false, isCurrent: () => this.current(platform, generation) });
           await this.publishChannel(platform, generation);
         });
         this.initialization.set(platform, initialization);
@@ -56,13 +60,14 @@ export class AdapterRuntime {
           }
           case 'account.state': {
             const caps = this.startupCapabilities.get(platform);
-            await options.repository.adapterState(platform, message.payload as State);
+            const event = await options.repository.adapterState(platform, message.payload as State, { isCurrent: () => this.current(platform, generation) });
             if (!this.current(platform, generation)) return;
             if (caps) {
               await options.repository.adapterCapabilities(platform, caps);
               if (!this.current(platform, generation)) return;
               this.startupCapabilities.delete(platform);
             }
+            await this.publishAlert(event, platform, generation);
             await this.publishChannel(platform, generation); return;
           }
           case 'login.step':
@@ -77,7 +82,10 @@ export class AdapterRuntime {
       onDisconnect: (platform, generation) => this.enqueue(platform, async () => {
         if (!this.current(platform, generation)) return;
         this.startupCapabilities.delete(platform);
-        await options.repository.adapterOffline(platform);
+        const event = await options.repository.adapterOffline(platform, {
+          observeOutage: !this.closing, isCurrent: () => this.current(platform, generation),
+        });
+        await this.publishAlert(event, platform, generation);
         await this.publishChannel(platform, generation);
       }),
     });
@@ -94,6 +102,11 @@ export class AdapterRuntime {
     this.queues.set(platform, next);
     return next;
   }
+  private async publishAlert(event: AlertEvent | null | void, platform: Platform, generation: number): Promise<void> {
+    if (!event || !this.current(platform, generation)) return;
+    // The transaction is authoritative; polling recovers a lost notification.
+    try { await this.options.publish(event.type, event.data); } catch { /* Do not reject the adapter report. */ }
+  }
   private async publishChannel(platform: Platform, generation: number): Promise<void> {
     if (!this.current(platform, generation)) return;
     const channel = (await this.options.repository.list()).find(row => (row as { platform?: string }).platform === platform);
@@ -106,7 +119,8 @@ export class AdapterRuntime {
   }
   private async startListeners(): Promise<void> {
     // Reconcile stale persisted status even when an adapter is disabled.
-    const reconciliation = await Promise.allSettled((['qq', 'telegram'] as const).map(platform => this.options.repository.adapterOffline(platform)));
+    const reconciliation = await Promise.allSettled((['qq', 'telegram'] as const).map(platform =>
+      this.options.repository.adapterOffline(platform, { observeOutage: this.options.adapters[platform].enabled ? 'persisted-login' : false })));
     const reconciliationErrors = reconciliation.filter((result): result is PromiseRejectedResult => result.status === 'rejected').map(result => result.reason);
     if (reconciliationErrors.length) throw new AggregateError(reconciliationErrors, 'adapter startup reconciliation failed');
     const started: Listener[] = [];
