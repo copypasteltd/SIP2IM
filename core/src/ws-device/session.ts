@@ -79,7 +79,8 @@ export class DeviceSessions {
   private protocolSequence = 0;
   // Keep confirmation history only while a rejected hello is being observed.
   private readonly latestCompatible = new Map<string, number>();
-  constructor(private readonly deps:DeviceSessionDeps) {}
+  constructor(private readonly deps:DeviceSessionDeps,
+    private readonly now:()=>number = () => performance.now()) {}
 
   private revokedSince(deviceId: string, epoch: number): 4010 | 4011 | undefined {
     const latest = this.revocations.get(deviceId);
@@ -149,10 +150,7 @@ export class DeviceSessions {
     if (this.stopPromise) return this.stopPromise;
     this.stopping = true;
     const states = [...this.sessions];
-    for (const state of states) {
-      if (state.timer !== undefined) clearTimeout(state.timer);
-      state.timer = undefined;
-    }
+    // Admitted lookups and lane work still drain, without suspending hello deadlines.
     this.stopPromise = (async () => {
       const results = await Promise.allSettled([...states.map(state => state.queue), this.protocolTail]);
       const errors: unknown[] = results.filter(r => r.status === 'rejected').map(r => (r as PromiseRejectedResult).reason);
@@ -176,62 +174,83 @@ export class DeviceSessions {
     }
     const state: SessionState = {socket, deviceId:null, generation:null, eventContext:null, closed:false, pending:0, queue:Promise.resolve(), timer:undefined};
     this.sessions.add(state);
-    state.timer = setTimeout(() => {
-      if (!state.deviceId && !state.closed) {
-        this.detach(state);
-        socket.close(4001);
-      }
-    }, HELLO_TIMEOUT_MS);
-    const closeWith = (code:number) => { this.detach(state); socket.close(code); };
+    const helloDeadline = this.now() + HELLO_TIMEOUT_MS;
+    let helloQueued = false;
+    let candidateRejection: (() => 4009 | 4010 | 4011 | undefined) | undefined;
+    const closeWith = (code:number) => {
+      if (state.closed) return;
+      try { this.detach(state); } catch { /* detach already recorded the failure. */ }
+      try { socket.close(code); } catch (error) { this.cleanupErrors.push(error); }
+    };
+    const canContinue = (): boolean => {
+      if (state.closed) return false;
+      if (helloQueued) return true;
+      const code = candidateRejection?.();
+      if (code === undefined && this.now() < helloDeadline) return true;
+      closeWith(code ?? 4001);
+      return false;
+    };
+    const checkDeadline = (): void => {
+      if (state.closed || helloQueued) return;
+      const code = candidateRejection?.();
+      const remaining = helloDeadline - this.now();
+      if (code !== undefined || remaining <= 0) closeWith(code ?? 4001);
+      else state.timer = setTimeout(checkDeadline, Math.ceil(remaining));
+    };
+    state.timer = setTimeout(checkDeadline, HELLO_TIMEOUT_MS);
     return {
       close: () => this.detach(state),
       message: (raw:string):Promise<void> => {
-        if (this.stopping || state.closed) return Promise.resolve();
+        if (this.stopping || !canContinue()) return Promise.resolve();
         if (state.pending >= 64) { closeWith(1013); return Promise.resolve(); }
         const admission = ++this.admissionSequence;
         const handshakeCandidate = !state.deviceId;
         if (handshakeCandidate) this.handshakeCandidates++;
         state.pending++;
         const task = state.queue.then(async () => {
-          if (state.closed) return;
+          if (!canContinue()) return;
           try {
             let value:unknown;
-            try { value = JSON.parse(raw); } catch { closeWith(4003); return; }
+            try { value = JSON.parse(raw); } catch { if (canContinue()) closeWith(4003); return; }
+            if (!canContinue()) return;
             if (!state.deviceId) {
               const candidate=value as {payload?:{protocol?:unknown}};
               if (candidate?.payload?.protocol !== 1) {
                 const observation = this.deps.protocolAlerts ? mismatchHello.safeParse(value) : null;
+                if (!canContinue()) return;
                 const authEpoch = this.revocationEpoch;
                 closeWith(4005);
                 if (observation?.success) await this.observeMismatch(observation.data.payload.token, authEpoch);
                 return;
               }
               let msg;
-              try { msg=parseDeviceMessage(value,'event'); } catch { closeWith(4003); return; }
+              try { msg=parseDeviceMessage(value,'event'); } catch { if (canContinue()) closeWith(4003); return; }
+              if (!canContinue()) return;
               if (msg.type !== 'hello') { closeWith(4003); return; }
               const authEpoch = this.revocationEpoch;
               const hello = msg.payload as { token: string; capabilities?: { callGeneration?: boolean } };
               const device=await this.deps.authenticate(hello.token);
               if (state.closed) return;
+              if (device?.enabled) {
+                candidateRejection = () => this.revokedSince(device.id, authEpoch) ??
+                  ((this.latestAuthenticated.get(device.id) ?? 0) > admission ? 4009 : undefined);
+              }
+              if (!canContinue()) return;
               if (!device) { closeWith(4003); return; }
               if (!device.enabled) { closeWith(4011); return; }
-              const revoked = () => this.revokedSince(device.id, authEpoch);
-              const revokedDuringAuth=revoked();
-              if (revokedDuringAuth) { closeWith(revokedDuringAuth); return; }
-              if ((this.latestAuthenticated.get(device.id) ?? 0) > admission) { closeWith(4009); return; }
+              // Do not roll back this high-water mark if config or takeover later expires.
               this.latestAuthenticated.set(device.id, admission);
               state.deviceId=device.id;
-              if (state.timer !== undefined) clearTimeout(state.timer);
-              state.timer=undefined;
               const config=this.deps.currentConfig ? await this.deps.currentConfig() : {heartbeatSec:this.deps.heartbeatSec,locale:this.deps.locale};
+              if (!canContinue()) return;
               await this.inDeviceLane(device.id, () => {
                 const stillEligible = () => {
-                  if (state.closed) return false;
-                  const code=revoked();
-                  if (code) { closeWith(code); return false; }
-                  if (this.latestAuthenticated.get(device.id) !== admission) { closeWith(4009); return false; }
-                  return true;
+                  if (!canContinue()) return false;
+                  if (socketIsOpen(socket)) return true;
+                  this.detach(state); // Transport is already closing; leave the incumbent alone.
+                  return false;
                 };
+                const response = JSON.stringify({v:1,type:'hello.ok',id:'cmd_'+ulid(),ts:Date.now(),payload:{deviceId:device.id,serverTime:Date.now(),config}});
                 if (!stillEligible()) return;
                 const oldSocket=this.active.get(device.id);
                 if (oldSocket) {
@@ -251,19 +270,19 @@ export class DeviceSessions {
                 this.active.set(device.id,socket);
                 this.activeGenerations.set(device.id,admission);
                 const { callGeneration, connectionId, isCurrent } = state.eventContext;
+                if (!stillEligible()) return;
+                socket.send(response);
+                const confirmed = () => isCurrent() && socketIsOpen(socket);
+                if (!confirmed()) { this.detach(state); return; }
+                helloQueued = true;
+                if (state.timer !== undefined) clearTimeout(state.timer);
+                state.timer=undefined;
                 if (callGeneration) this.deps.commands?.attach(device.id, socket, { connectionId, current: isCurrent });
                 else this.deps.commands?.attach(device.id, socket);
-                if (isCurrent()) {
-                  const wasOpen = socketIsOpen(socket);
-                  socket.send(JSON.stringify({v:1,type:'hello.ok',id:'cmd_'+ulid(),ts:Date.now(),payload:{deviceId:device.id,serverTime:Date.now(),config}}));
-                  const confirmed = () => isCurrent() && socketIsOpen(socket);
-                  if (wasOpen && confirmed()) {
-                    this.deps.commands?.configReady(device.id, socket);
-                    // Compare actual confirmation with rejection, not order of hello arrival or auth.
-                    if (this.mismatchChecks > 0) this.latestCompatible.set(device.id, ++this.protocolSequence);
-                    this.queueProtocolObservation('compatible', device.id, hello.token, confirmed);
-                  }
-                }
+                this.deps.commands?.configReady(device.id, socket);
+                // Compare actual confirmation with rejection, not order of hello arrival or auth.
+                if (this.mismatchChecks > 0) this.latestCompatible.set(device.id, ++this.protocolSequence);
+                this.queueProtocolObservation('compatible', device.id, hello.token, confirmed);
               });
               return;
             }
@@ -290,7 +309,7 @@ export class DeviceSessions {
                 socket.send(JSON.stringify({v:1,type:'ack',id:'cmd_'+ulid(),ts:Date.now(),payload:{refId:msg.id,ok:true,error:null}}));
               }
             }
-          } catch { if (!state.closed) closeWith(1011); }
+          } catch { if (canContinue()) closeWith(1011); }
         });
         state.queue=task.finally(() => {
           state.pending--;

@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · Core 设备握手与接管截止
+
+- Core 接管 `/ws/device` 连接后，使用同一个 5 秒单调时钟窗口接收 `hello`、验证令牌、读取当前配置并进入设备接管。超时的候选连接不发送 `hello.ok`、不注册为命令目标；到接管时已经过期的候选不会替换现有连接。[设备会话](core/src/ws-device/session.ts)
+- 令牌核验及时通过的较新候选仍会阻止更早的候选接管；后续超时不回退这条代次约束。关停不再放宽截止，仍等待已接纳的查询与设备队列。关闭码、报文格式和设备 ACK 语义不变。
+- 本轮复验 Core、Web 和原合成演示，未改动截图或录屏；不替代真机和实际代理链路验收。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core 管理连接首条鉴权截止
 
 - Core 从接管 `/ws/admin` 连接起计 5 秒，按单调时钟在接收、排队处理、发起查询前及鉴权结果返回时复核。到期未完成的鉴权返回关闭码 `4401`，即使定时回调延迟也不会登记订阅或发送排队的 `pong`。[管理会话](core/src/ws-admin/session.ts)
 - 关停冻结新消息，但保留首条鉴权时限并等待已接纳的查询返回。及时完成首条鉴权后，已接纳的心跳仍正常复核会话；撤权或已观察到的连接关闭不被迟到结果覆盖。没有更改报文格式、客户端退避或写入语义。
-- 本轮复验 Core、Web 与合成演示，原录屏未改动，不展示服务端鉴权竞态。[验证记录](docs/VERIFICATION.md)
+- 本轮复验 Core、Web 与合成演示，原录屏未改动，不展示服务端鉴权竞态。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/94e19f318277d495fc984be5dd88bb108b3fdc80/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Web 管理连接超时恢复
 
@@ -108,11 +114,17 @@
 
 ## English
 
+### 2026-11-21 · Core device handshake and takeover deadline
+
+- One five-second monotonic window starts when Core accepts `/ws/device` and covers `hello`, token verification, the current configuration read, and the serialized takeover. A candidate that has expired before takeover cannot evict the incumbent, send `hello.ok`, or register as a command target. [Device sessions](core/src/ws-device/session.ts)
+- A newer timely authentication still fences older candidates even if its later work expires. Shutdown retains the deadline and joins admitted lookups and device-lane work. Close codes, wire format, and device ACK semantics are unchanged.
+- Core, Web, and the existing synthetic demo were rechecked. Screenshots and recordings are unchanged and do not substitute for handset or deployed proxy acceptance. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core admin first-auth deadline
 
 - Core starts a five-second monotonic deadline when it takes ownership of an admin WebSocket. It checks the deadline at message admission, queued processing, before the auth lookup, and when it settles. Expired first auth closes with `4401`; a delayed timer cannot turn an expired result into a subscription or a queued `pong`. [Admin sessions](core/src/ws-admin/session.ts)
 - Shutdown freezes new work but retains the deadline and joins admitted lookups. When first auth finishes on time, admitted heartbeats still recheck the session. Revocation or a previously observed close is not overwritten by a late result. The wire format, client retry, and write semantics are unchanged.
-- Core, Web, and the synthetic demo were rechecked. The retained recording is unchanged and does not show the server-side timing race. [Verification](docs/VERIFICATION.md)
+- Core, Web, and the synthetic demo were rechecked. The retained recording is unchanged and does not show the server-side timing race. [Verification](https://github.com/copypasteltd/SIP2IM/blob/94e19f318277d495fc984be5dd88bb108b3fdc80/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Web admin connection timeout recovery
 

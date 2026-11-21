@@ -106,16 +106,29 @@ describe('DeviceSessions stop', () => {
     expect(a.send).toHaveBeenCalledTimes(2); expect(commands.isConnected(id)).toBe(false);
   });
 
-  it('cancels the handshake timer during a slow authentication', async () => {
-    vi.useFakeTimers();
+  it.each(['timer','settlement'] as const)('expires a slow hello during stop but joins the admitted lookup (%s)', async firstEffect => {
+    vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+    let now=0;
     const auth=deferred<{id:string;enabled:boolean}|null>();
-    const ds=new DeviceSessions({authenticate:()=>auth.promise,heartbeat:async()=>{},onEvent:async()=>true,heartbeatSec:30,locale:'en'});
-    const ws=socket(), s=ds.open(ws); const work=s.message(hello);
-    await Promise.resolve(); const stop=ds.stop();
-    await vi.advanceTimersByTimeAsync(6000);
-    expect(ws.close).not.toHaveBeenCalled();
-    auth.resolve({id,enabled:true}); await Promise.all([work,stop]);
-    expect(ws.close).toHaveBeenCalledOnce(); expect(ws.close).toHaveBeenCalledWith(1001);
+    const authenticate=vi.fn(()=>auth.promise), heartbeatFn=vi.fn(async()=>{});
+    const commands=new DeviceCommands();
+    const ds=new DeviceSessions({authenticate,heartbeat:heartbeatFn,onEvent:async()=>true,heartbeatSec:30,locale:'en',commands},()=>now);
+    const ws=socket(), s=ds.open(ws);
+    const work=s.message(hello), queued=s.message(heartbeat);
+    await Promise.resolve();
+    expect(authenticate).toHaveBeenCalledOnce();
+    const stop=ds.stop();
+    now=5000;
+    if(firstEffect==='timer') await vi.advanceTimersByTimeAsync(5000);
+    expect(ws.close.mock.calls).toEqual(firstEffect==='timer'?[[4001]]:[]);
+    await pending(stop);
+    auth.resolve({id,enabled:true});
+    await Promise.all([work,queued,stop]);
+    expect(ws.close).toHaveBeenCalledExactlyOnceWith(4001);
+    expect(ws.send).not.toHaveBeenCalled();
+    expect(heartbeatFn).not.toHaveBeenCalled();
+    expect(commands.isConnected(id)).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('remembers detach failure even when the session has already closed', async () => {

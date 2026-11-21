@@ -74,7 +74,7 @@
 | C-SET-01 | settings 读写、缓存、/api/settings、settings.updated | C-AUTH-01 | — | K06 §3、K08 §3.13 | 改设置后缓存与推送生效 | TODO |
 | C-WSA-01 | /ws/admin：首条消息认证、ping/pong、事件转发 | C-AUTH-01, C-UTIL-01 | NFR-03 | K05 §6.4 | 首条鉴权截止、撤权和关停排空已有离线回归；实际代理链路待验收 | REVIEW |
 | C-DEV-01 | 绑定码生成与 POST /api/device/bind（原子、限流、过期） | C-AUTH-01 | FR-DEV-01 | K05 §2、K08 §3.2 | TC-DEV-01/02；并发同码只成功一次 | TODO |
-| C-DEV-02 | ws-device：hello、关闭码、版本协商、旧连接替换、ack 与命令超时（05 §3.5） | C-DEV-01, P-01 | FR-DEV-01/02 | K05 §3 | 假设备测试覆盖全部关闭码与 ack 分支 | TODO |
+| C-DEV-02 | ws-device：hello、关闭码、版本协商、旧连接替换、ack 与命令超时（05 §3.5） | C-DEV-01, P-01 | FR-DEV-01/02 | K05 §3 | 握手时限、代次接管和撤权已有离线回归；真机和实际链路待验收 | REVIEW |
 | C-DEV-03 | 心跳、在线判定、device_status TTL、online/offline 事件 | C-DEV-02 | FR-DEV-03 | K08 §3.2 | TC-DEV-04（假时钟） | TODO |
 | C-DEV-04 | 设备 CRUD：列表、详情 DTO、改名、启停、通话开关、默认 SIM、解绑吊销、probe 触发 | C-DEV-02 | FR-DEV-02/06/07 | K05 §6.2–6.3 | TC-DEV-03、TC-DEV-08 | TODO |
 | C-DEV-05 | canCommand / canCall 判定；暂停与禁用处理（命令前拦截、来电直接 reject） | C-DEV-03 | FR-DEV-09 | K08 §3.2、K05 §3.4 | TC-DEV-09（假设备） | TODO |
@@ -223,7 +223,7 @@
 | DEC | 1 | 0 | 1 | 0 | 0 | 0 |
 | ENV | 11 | 3 | 0 | 0 | 0 | 0 |
 | P | 7 | 0 | 0 | 0 | 0 | 0 |
-| C | 45 | 0 | 0 | 1 | 10 | 0 |
+| C | 45 | 0 | 0 | 1 | 11 | 0 |
 | A | 18 | 0 | 0 | 0 | 2 | 0 |
 | W | 16 | 0 | 0 | 0 | 1 | 0 |
 | T | 7 | 0 | 0 | 0 | 0 | 0 |
@@ -231,4 +231,4 @@
 | TL | 4 | 0 | 0 | 0 | 0 | 0 |
 | D | 7 | 0 | 0 | 0 | 0 | 0 |
 | G | 9 | 0 | 0 | 0 | 0 | 0 |
-| 合计 | 132 | 3 | 1 | 1 | 13 | 0 |
+| 合计 | 132 | 3 | 1 | 1 | 14 | 0 |
