@@ -68,3 +68,96 @@ test('matching ack resolves pending operation', async () => {
   await client.receive(envelope('ack', {refId:message.id,ok:true,error:null}));
   assert.equal((await result).ok, true);
 });
+
+const receipt = (refId,ok=true) => envelope('ack',{refId,ok,error:ok?null:'INTERNAL'});
+
+for(const [at,ok] of [[9999,true],[9999,false],[10000,true],[10000,false]]) {
+  test('admits only a timely exact ACK ('+at+'ms; ok='+ok+')', async () => {
+    let now=0;
+    const client=new Client('unused',undefined,10_000,()=>now), frames=[];
+    const wire={destroyed:false,write:bytes=>frames.push(bytes)};
+    client.socket=wire;
+    const report=envelope('account.state',{}), pending=client.send(report);
+    const observed=at===10_000?assert.rejects(pending,/ack timeout; outcome unknown/):pending;
+    await assert.rejects(client.send(report),/already pending/);
+    now=at;
+    await client.receive(receipt(report.id),{...wire});
+    await client.receive(receipt(envelope('account.state',{}).id));
+    assert.equal(client.pending.size,1);
+    const ack=receipt(report.id,ok);
+    await client.receive(ack);
+    if(at<10_000)assert.deepEqual(await observed,ack.payload);
+    else await observed;
+    await client.receive(receipt(report.id,!ok));
+    assert.equal(client.pending.size,0);
+    assert.equal(frames.length,1);
+  });
+}
+
+test('subtracts local write time and rearms an early timer only for the remainder', async t => {
+  let now=0;
+  const timers=[];
+  t.mock.method(globalThis,'setTimeout',(run,delay)=>{const item={run,delay};timers.push(item);return item;});
+  t.mock.method(globalThis,'clearTimeout',()=>{});
+  const client=new Client('unused',undefined,10_000,()=>now);
+  client.socket={destroyed:false,write(){now=3500;}};
+  const pending=assert.rejects(client.send(envelope('account.state',{})),/ack timeout/);
+  assert.deepEqual(timers.map(x=>x.delay),[6500]);
+  now=9250;timers[0].run();
+  assert.deepEqual(timers.map(x=>x.delay),[6500,750]);
+  now=10000;timers[1].run();await pending;
+  assert.equal(client.pending.size,0);
+});
+
+test('a retired timer or old IPC socket cannot consume a replacement entry', async t => {
+  let now=0;
+  const timers=[];
+  t.mock.method(globalThis,'setTimeout',(run,delay)=>{const item={run,delay};timers.push(item);return item;});
+  t.mock.method(globalThis,'clearTimeout',()=>{});
+  const makeWire=()=>Object.assign(new EventEmitter(),{destroyed:false,write(){}});
+  const old=makeWire(), replacement=makeWire(), queue=[old,replacement];
+  t.mock.method(net,'createConnection',()=>queue.shift());
+  const client=new Client('unused',undefined,10_000,()=>now);
+  const oldConnection=client.connect(), report=envelope('account.state',{});
+  const retired=assert.rejects(client.send(report),/disconnected; outcome unknown/);
+  old.emit('close');await oldConnection;await retired;
+  assert.equal(client.socket,undefined);
+  await assert.rejects(client.send(report),/disconnected/);
+  now=2000;
+  const currentConnection=client.connect(), pending=client.send(report);
+  old.emit('close');
+  assert.equal(client.socket,replacement);
+  now=10_000;timers[0].run();
+  await client.receive(receipt(report.id,false),old);
+  assert.equal(client.pending.size,1);
+  await client.receive(receipt(report.id),replacement);
+  assert.equal((await pending).ok,true);
+  replacement.emit('close');await currentConnection;
+  assert.equal(client.pending.size,0);
+});
+
+test('settles a synchronous receipt once even when write later throws', async () => {
+  const client=new Client('unused',undefined,10_000,()=>0), report=envelope('account.state',{});
+  const ack=receipt(report.id);
+  client.socket={destroyed:false,write(){void client.receive(ack);throw Error('fixture write');}};
+  assert.deepEqual(await client.send(report),ack.payload);
+  assert.equal(client.pending.size,0);
+  client.socket={destroyed:false,write(){throw Error('fixture write');}};
+  await assert.rejects(client.send(report),/send failed; outcome unknown/);
+  assert.equal(client.pending.size,0);
+});
+
+test('stop rejects the current send without waiting for a transport close event', async () => {
+  const client=new Client('unused',undefined,10_000,()=>0), report=envelope('account.state',{});
+  let destroys=0, writes=0;
+  const wire={destroyed:false,write(){writes++;},destroy(){destroys++;}};
+  client.socket=wire;
+  const stopped=assert.rejects(client.send(report),/disconnected; outcome unknown/);
+  client.stop();client.stop();
+  await stopped;
+  await client.receive(receipt(report.id),wire);
+  await assert.rejects(client.send(report),/disconnected/);
+  assert.equal(writes,1);
+  assert.equal(destroys,1);
+  assert.equal(client.pending.size,0);
+});

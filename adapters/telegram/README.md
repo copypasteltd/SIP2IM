@@ -4,12 +4,12 @@ Optional Telethon backend: install this package with the `telegram` extra and su
 
 ## Native offline tests
 
-The IPC reader checks the shared ACK error vocabulary and the timestamp range. It settles sends only by the exact pending reference on the current connection. Malformed ACKs and invalid UTF-8 close the connection. A command with a valid envelope ID and an invalid timestamp receives `BAD_MESSAGE`.
+The IPC reader validates the shared ACK error vocabulary and timestamp range. Both `drain()` and receipt of the exact ACK on the same current writer must finish within ten seconds from the local write, measured with a monotonic clock. Late receipts do not settle the report; timeout leaves the outcome unknown and does not replay it. Cancelling startup retires its local send and drain. Malformed ACKs and invalid UTF-8 close the connection. A command with a valid envelope ID and an invalid timestamp receives `BAD_MESSAGE`.
 
 Run from the repository root. The tests use memory streams and a fake Telegram client.
 
 ```bash
-PYTHONPATH=adapters/telegram/src python -B -m unittest discover -s adapters/telegram/tests
+env -u TELEGRAM_API_ID -u TELEGRAM_API_HASH PYTHONPATH=adapters/telegram/src python -B -m unittest discover -s adapters/telegram/tests
 ```
 
 ## Dependency notes

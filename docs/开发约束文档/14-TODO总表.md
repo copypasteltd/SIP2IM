@@ -156,7 +156,7 @@
 | 编号 | 任务 | 依赖 | 需求 | 参考 | 验收 | 状态 |
 |---|---|---|---|---|---|---|
 | T-SPIKE | 预研：x86_64 上 Telethon + 通话库主动一对一呼叫与双向 PCM；核实通话库许可证 | ENV-09 | C-12 | K09 §2 | 预研报告（K16 §5）；真实账号测试先获授权 | TODO |
-| T-01 | IPC 客户端、重连、adapter.hello、capabilities、ack | P-07 | — | K09 §1、K05 §5 | 对接 core 假环境 | TODO |
+| T-01 | IPC 客户端、重连、adapter.hello、capabilities、ack | P-07 | — | K09 §1、K05 §5 | 内存连接、回执截止和排空已过离线回归；真实链路待验收 | REVIEW |
 | T-02 | 读取 config.toml [adapters.telegram]；登录状态机与 session 存储 | T-01 | FR-PAIR-01 | K09 §1–2 | fake 平台测试；真实登录需授权 | TODO |
 | T-03 | 私聊收发、过滤群聊/转发、联系人判断、来电自动拒接上报 | T-02 | FR-PAIR-04/05 | K09 §2 | fake 平台测试 | TODO |
 | T-04 | 一对一呼叫、状态与 CallCause 映射、挂断 | T-03, T-SPIKE | FR-IN-01、FR-OUT-03 | K09 §2、K05 §3.6 | fake 测试；真实在 G2 | TODO |
@@ -170,7 +170,7 @@
 | Q-SPIKE-A | 预研 Q-A：x86_64 上 Linux QQ（--no-sandbox）+ 协议端；自研方式发起私聊语音与读写通话音频；PulseAudio root 运行方式核实 | ENV-10 | C-12 | K09 §3 | 预研报告；安装前列命令并说明 pulse 账户问题 | TODO |
 | Q-SPIKE-B | 预研 Q-B：Xvfb + AT-SPI 识别通话界面与状态 | Q-SPIKE-A | C-12 | K09 §3 | 仅当 Q-A 不可行时执行 | TODO |
 | Q-SPIKE-C | 预研 Q-C：安卓 QQ + 无障碍 + Shizuku 音频 | Q-SPIKE-B | C-12 | K09 §3 | 仅当 Q-A、Q-B 均不可行；需用户确认占用手机 | TODO |
-| Q-01 | IPC 客户端、QqBackend 接口、fake-backend | P-03 | — | K09 §3 | fake 测试 | TODO |
+| Q-01 | IPC 客户端、QqBackend 接口、fake-backend | P-03 | — | K09 §3 | 假连接、回执截止、重连隔离已过离线回归；真实链路待验收 | REVIEW |
 | Q-02 | PulseAudio 虚拟设备读写 | Q-01, D-03 | — | K09 §3 | 服务器 null-sink 回环测试 | TODO |
 | Q-03 | 选定路线 backend：登录、消息、呼叫、音频、来电自动拒接 | Q-02, Q-SPIKE-A | FR-PAIR-*, FR-IN-*, FR-OUT-* | K09 §3 | fake 测试；真实在 G3 | TODO |
 | Q-04 | systemd 单元（Xvfb、PulseAudio、--no-sandbox） | Q-03 | — | K13 §6 | 服务器上可启动并连接 core | TODO |
@@ -226,9 +226,9 @@
 | C | 45 | 0 | 0 | 1 | 11 | 0 |
 | A | 18 | 0 | 0 | 0 | 2 | 0 |
 | W | 16 | 0 | 0 | 0 | 1 | 0 |
-| T | 7 | 0 | 0 | 0 | 0 | 0 |
-| Q | 7 | 0 | 0 | 0 | 0 | 0 |
+| T | 7 | 0 | 0 | 0 | 1 | 0 |
+| Q | 7 | 0 | 0 | 0 | 1 | 0 |
 | TL | 4 | 0 | 0 | 0 | 0 | 0 |
 | D | 7 | 0 | 0 | 0 | 0 | 0 |
 | G | 9 | 0 | 0 | 0 | 0 | 0 |
-| 合计 | 132 | 3 | 1 | 1 | 14 | 0 |
+| 合计 | 132 | 3 | 1 | 1 | 16 | 0 |

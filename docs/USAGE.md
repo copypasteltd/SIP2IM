@@ -123,14 +123,14 @@ npm --prefix packages/protocol run check --workspaces=false
 npm --prefix core run check --workspaces=false
 npm --prefix web run check --workspaces=false
 npm --prefix web run i18n:check --workspaces=false
-node --test adapters/qq/test/client.test.mjs adapters/qq/test/shared-fixtures.test.mjs
+node --test adapters/qq/test/client.test.mjs adapters/qq/test/shared-fixtures.test.mjs adapters/qq/test/ipc.test.ts
 python -B -m unittest discover -s tools -p test_sms_intent_model.py -v
 ```
 
-Telegram fixture tests load local source using `PYTHONPATH`. Example for Bash / Bash 示例。
+Telegram fixtures use local source via `PYTHONPATH`, with platform credentials unset. / 使用 `PYTHONPATH` 加载本地 Telegram 夹具时，取消真实平台凭据。
 
 ```sh
-PYTHONPATH=adapters/telegram/src python -B -m unittest discover -s adapters/telegram/tests -v
+env -u TELEGRAM_API_ID -u TELEGRAM_API_HASH PYTHONPATH=adapters/telegram/src python -B -m unittest discover -s adapters/telegram/tests -v
 ```
 
 Use pre-cached dependencies for these focused Core and Web checks. PostgreSQL-dependent suites need their own isolated database and setup. Consult the corresponding fixture before running them.

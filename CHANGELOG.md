@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · QQ 与 Telegram 的 IPC 上报回执截止
+
+- 两端从开始本地写入起，共用各自的 10 秒单调时钟窗口。只接受在截止前处理的、当前连接与原上报 ID 均匹配的 ACK；定时回调晚到也不接受过期的正向或负向回执。超时保留结果未知，不重放原上报。 [QQ 客户端](adapters/qq/src/main.mjs) · [Telegram 客户端](adapters/telegram/src/voipgw_tg/client.py)
+- Telegram 的写入缓冲排空与回执等待使用同一窗口；背压不会另开计时。连接关闭或启动取消时清理该连接的在途记录与本地等待；旧连接不会结算新连接。Core 账号写入、IPC 格式与平台能力不变。
+- 复验原生离线测试与此前的合成实录；无真实平台、真机、数据库或部署验收。 [验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core 适配器账号命令回执截止
 
 - Core 从本地 IPC 写入开始计 10 秒。即使超时回调尚未执行，到达截止的 ACK 也只能按超时处理原请求。迟到存证窗口固定在首次截止后 30 秒结束，不因定时回调延迟而延长。 [适配器会话](core/src/channels/adapter-manager.ts)
 - 窗口内，同一有效连接上同一命令的首个匹配正 ACK 只为原操作存证，仍需管理员显式释放。迟到负 ACK 不存证；过期或换代后不接纳旧证据。不自动重发，报文和平台能力不变。 [平台登录恢复](docs/platform-login-recovery.md)
-- 合成演示、截图和录屏未改动，不展示真实平台登录或迟到回执。 [验证记录](docs/VERIFICATION.md)
+- 合成演示、截图和录屏未改动，不展示真实平台登录或迟到回执。 [验证记录](https://github.com/copypasteltd/SIP2IM/blob/ace8893b12f4925003a96cd98f740978da93ec90/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Core 设备命令回执截止
 
@@ -126,11 +132,17 @@
 
 ## English
 
+### 2026-11-21 · QQ and Telegram IPC report ACK deadlines
+
+- Each client starts a ten-second monotonic window at its local write. Only an ACK processed before expiry and matching the report ID and current connection settles the report; a delayed timer cannot admit a late positive or negative ACK. Timeout leaves the outcome unknown and does not replay the report. [QQ client](adapters/qq/src/main.mjs) · [Telegram client](adapters/telegram/src/voipgw_tg/client.py)
+- Telegram shares the window between write-buffer draining and ACK handling rather than starting a second countdown. Connection closure or startup cancellation cleans up that connection’s pending reports and local waits. Retired connections cannot settle a replacement. Core account operations, framing, and platform capabilities are unchanged.
+- Native offline checks and the retained synthetic walkthrough were reverified. No live platform, handset, database, or deployment acceptance was performed. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core adapter account command ACK deadlines
 
 - Core allows ten seconds on a monotonic clock from the start of the local IPC write. A matching ACK processed at or after that deadline cannot change the original timeout outcome, even if the timer has not run. The evidence window ends 30 seconds after the original cutoff, not 30 seconds after the callback. [Adapter sessions](core/src/channels/adapter-manager.ts)
 - Within the evidence window, a positive first matching ACK on the same live link can only record evidence for the original operation. An administrator must still release it explicitly. A late NACK does not record evidence; expiry or link replacement ends admission. No automatic replay, wire change, or new capability. [Platform login recovery](docs/platform-login-recovery.md)
-- The demo, screenshots, and recording are unchanged and do not show live platform sign-in or late ACKs. [Verification](docs/VERIFICATION.md)
+- The demo, screenshots, and recording are unchanged and do not show live platform sign-in or late ACKs. [Verification](https://github.com/copypasteltd/SIP2IM/blob/ace8893b12f4925003a96cd98f740978da93ec90/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Core device command ACK deadline
 

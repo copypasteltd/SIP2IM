@@ -39,27 +39,60 @@ function valid(m) {
 }
 function encode(m) { const body = Buffer.from(JSON.stringify(m)); if (body.length + 1 > 1048576) throw Error('frame too large'); const b = Buffer.alloc(body.length + 5); b.writeUInt32BE(body.length + 1); b[4] = 1; body.copy(b, 5); return b; }
 export class Client {
-  constructor(path, handler = async () => [false, 'CAPABILITY_UNSUPPORTED'], timeout = 10000) {
-    this.path = path; this.handler = handler; this.timeout = timeout; this.pending = new Map(); this.recent = new Map(); this.inflight = new Map(); this.stopped = false;
+  constructor(path, handler = async () => [false, 'CAPABILITY_UNSUPPORTED'], timeout = 10000, now = () => performance.now()) {
+    this.path = path; this.handler = handler; this.timeout = timeout; this.now = now; this.pending = new Map(); this.recent = new Map(); this.inflight = new Map(); this.stopped = false;
+  }
+  #takePending(id, entry) {
+    if (this.pending.get(id) !== entry) return false;
+    this.pending.delete(id);
+    if (entry.timer !== undefined) clearTimeout(entry.timer);
+    return true;
+  }
+  #expire(id, entry) {
+    if (this.#takePending(id, entry)) entry.reject(Error('ack timeout; outcome unknown'));
+  }
+  #disconnect(socket) {
+    for (const [id, entry] of this.pending) {
+      if (entry.socket === socket && this.#takePending(id, entry)) entry.reject(Error('disconnected; outcome unknown'));
+    }
   }
   send(message, socket = this.socket) {
     return new Promise((resolve, reject) => {
-      if (!socket || socket !== this.socket || socket.destroyed) return reject(Error('disconnected'));
-      const timer = setTimeout(() => { this.pending.delete(message.id); reject(Error('ack timeout; outcome unknown')); }, this.timeout);
-      this.pending.set(message.id, { resolve, reject, timer, socket });
-      socket.write(encode(message));
+      const isCurrent = () => !this.stopped && socket && socket === this.socket && !socket.destroyed;
+      if (!isCurrent()) return reject(Error('disconnected'));
+      const id = message.id;
+      if (this.pending.has(id)) return reject(Error('report ID is already pending'));
+      const bytes = encode(message), write = socket.write;
+      if (!isCurrent()) return reject(Error('disconnected'));
+      if (this.pending.has(id)) return reject(Error('report ID is already pending'));
+      const entry = { resolve, reject, socket, deadline:this.now() + this.timeout, timer:undefined };
+      this.pending.set(id, entry);
+      try { Reflect.apply(write, socket, [bytes]); }
+      catch {
+        if (this.#takePending(id, entry)) reject(Error('send failed; outcome unknown'));
+        return;
+      }
+      const check = () => {
+        if (this.pending.get(id) !== entry) return;
+        const remaining = entry.deadline - this.now();
+        if (remaining <= 0) this.#expire(id, entry);
+        else entry.timer = setTimeout(check, Math.ceil(remaining));
+      };
+      check();
     });
   }
   async receive(message, socket = this.socket) {
-    if (!socket || socket.destroyed || socket !== this.socket) return;
+    if (this.stopped || !socket || socket.destroyed || socket !== this.socket) return;
     if (!valid(message)) {
       if (message?.type !== 'ack' && validId(message?.id)) socket.write(encode(envelope('ack', {refId: message.id, ok:false, error:'BAD_MESSAGE'})));
       else socket.destroy();
       return;
     }
     if (message.type === 'ack') {
-      const entry = this.pending.get(message.payload.refId);
-      if (entry && entry.socket === socket) { clearTimeout(entry.timer); this.pending.delete(message.payload.refId); entry.resolve(message.payload); }
+      const id = message.payload.refId, entry = this.pending.get(id);
+      if (!entry || entry.socket !== socket) return;
+      if (this.now() >= entry.deadline) this.#expire(id, entry);
+      else if (this.#takePending(id, entry)) entry.resolve(message.payload);
       return;
     }
     let result = this.recent.get(message.id);
@@ -78,7 +111,7 @@ export class Client {
       }
       result = await pending;
     }
-    if (socket === this.socket && !socket.destroyed) socket.write(encode(result));
+    if (!this.stopped && socket === this.socket && !socket.destroyed) socket.write(encode(result));
   }
   connect() {
     return new Promise((resolve) => {
@@ -107,13 +140,20 @@ export class Client {
       });
       socket.on('error', () => {});
       socket.on('close', () => {
-        for (const [key, entry] of this.pending) { if (entry.socket === socket) { clearTimeout(entry.timer); this.pending.delete(key); entry.reject(Error('disconnected; outcome unknown')); } }
+        if (this.socket === socket) this.socket = undefined;
+        this.#disconnect(socket);
         resolve(readyAt !== null && performance.now() - readyAt >= 30000);
       });
     });
   }
   async run() { let delay = 1000; while (!this.stopped) { const stable = await this.connect(); if (this.stopped) break; if (stable) delay = 1000; await new Promise(resolve => { this.wake = resolve; this.timer = setTimeout(resolve, delay); }); delay = Math.min(delay * 2, 30000); } }
-  stop() { this.stopped = true; this.socket?.destroy(); clearTimeout(this.timer); this.wake?.(); }
+  stop() {
+    if (this.stopped) return;
+    this.stopped = true;
+    if (this.socket) { this.#disconnect(this.socket); this.socket.destroy(); }
+    clearTimeout(this.timer);
+    this.wake?.();
+  }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const client = new Client(process.argv[2] || '/run/voip-gateway/adapter-qq.sock');

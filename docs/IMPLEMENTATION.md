@@ -97,6 +97,7 @@ Core 从接管 `/ws/admin` 的 WebSocket 起，在单调时钟上确定固定 5 
 
 - 错过提示时，Web 提供明确的只读操作。Core 只在没有本地操作与读回重叠、没有持久阻断记录、原管理员会话复核通过且挑战仍一致时返回当前步骤。空值不表示登录结果。Web 在当前管理会话、连接与平台观测仍有效时采用结果，读回和提示更换均清空输入。提交必须带 Core 生成的原挑战 ID；同名新提示、连接更换或已有发送会让旧标识失效。此标识只在 Core 与管理端内存传递，不进入适配器 IPC，不是账号控制命令的幂等键或管理员凭据。
 - 账号命令从获准的本地 IPC 写入开始计时：10 秒截止前接纳正常 ACK；达到截止后最多再保留 30 秒存证窗口，起点包含、终点不包含。两段共用单调时钟；回调提前只安排剩余时间，延迟也不移后截止。断开或换代丢弃尚未接纳的证据，已接纳的存证写入仍会排空。匹配的迟到正 ACK 只绑定原平台与持久操作，不改变原 HTTP 504，也不自动释放；首个匹配的迟到负 ACK 消耗机会但不存证。 [适配器会话](../core/src/channels/adapter-manager.ts) · [恢复边界](platform-login-recovery.md)
+- 反向的适配器上报（如 `adapter.hello`、`capabilities` 和 `account.state`）有独立的本地 10 秒单调窗口。只结算当前 IPC 连接上、按原上报 ID 匹配且处理时尚未截止的 ACK；不采信报文时间，也不会因超时自动重放。Telegram 的 `drain()` 和 ACK 必须都在原窗口内完成，不能因背压追加新窗口。已观察到的连接关闭或启动取消会清理本地等待，但不能证明已写入的上报未被 Core 处理。 [QQ 客户端](../adapters/qq/src/main.mjs) · [Telegram 客户端](../adapters/telegram/src/voipgw_tg/client.py)
 
 ### 异常短信托管
 
@@ -213,6 +214,7 @@ Each attempt has separate ten-second windows for WebSocket open and the first `p
 
 - Web offers an explicit read-only action for missed prompts. Core returns a step only if it still matches the challenge observed before the durable read, no local operation overlaps the read or the authorization recheck, no durable operation blocks it, and the original administrator session still authorizes the request. Null does not settle the sign-in outcome. Web discards results that outlive the current admin session, socket, or platform observation and clears typed values on readback and prompt replacement. A submit must carry the original Core-issued challenge ID. It stays in the management layer, not the adapter IPC payload, and is neither an idempotency key nor an administrator credential.
 - A ten-second monotonic ACK window starts at the admitted local IPC write. The evidence window begins at that cutoff and ends 30 seconds later, exclusive. Early timers rearm for the remainder; delayed timers do not move either cutoff. Disconnect or replacement discards evidence not yet admitted, but admitted writes still drain. A late positive ACK binds to the original platform and durable operation; it neither changes the original HTTP 504 nor releases the operation automatically. The first matching late NACK consumes the opportunity without recording evidence. [Adapter sessions](../core/src/channels/adapter-manager.ts) · [Recovery boundaries](platform-login-recovery.md)
+- In the other direction, adapter reports such as `adapter.hello`, `capabilities`, and `account.state` have their own local ten-second monotonic window. A report ACK must match its original ID and current IPC connection and be processed before expiry; neither wire timestamps nor delayed timer callbacks extend the window. Telegram must complete both `drain()` and ACK handling within it. Observed closure or startup cancellation ends local waits without proving that Core did not process a frame already written; the original report is not replayed. [QQ client](../adapters/qq/src/main.mjs) · [Telegram client](../adapters/telegram/src/voipgw_tg/client.py)
 
 ### Exceptional SMS custody
 
