@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · Core 设备命令回执截止
+
+- 从开始向本地设备连接提交命令起，Core 用单调时钟计 10 秒。只有当前连接处理的匹配 ACK 且尚未截止，才结算该命令；即使超时回调尚未执行，到期的正向和负向 ACK 都按超时处理。旧计时器或发送清理不能影响替换后的命令。[设备命令](core/src/ws-device/commands.ts)
+- 生产短信由传输层统一裁定 ACK，不另设一条竞争的派发计时。无有效 ACK 的已申领尝试按原身份保留 `unknown`，不重发；独立、匹配的设备结果仍可用于对账。ACK 不证明短信送达或通话完成。[短信派发](core/src/sms/dispatch.ts)
+- Core、Web 和现有合成演示已复验；原素材未改动，不展示真实终端命令结果。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core 设备握手与接管截止
 
 - Core 接管 `/ws/device` 连接后，使用同一个 5 秒单调时钟窗口接收 `hello`、验证令牌、读取当前配置并进入设备接管。超时的候选连接不发送 `hello.ok`、不注册为命令目标；到接管时已经过期的候选不会替换现有连接。[设备会话](core/src/ws-device/session.ts)
 - 令牌核验及时通过的较新候选仍会阻止更早的候选接管；后续超时不回退这条代次约束。关停不再放宽截止，仍等待已接纳的查询与设备队列。关闭码、报文格式和设备 ACK 语义不变。
-- 本轮复验 Core、Web 和原合成演示，未改动截图或录屏；不替代真机和实际代理链路验收。[验证记录](docs/VERIFICATION.md)
+- 本轮复验 Core、Web 和原合成演示，未改动截图或录屏；不替代真机和实际代理链路验收。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/7b658f2d1f8c1e42298a05df076e7d586fe0131a/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Core 管理连接首条鉴权截止
 
@@ -114,11 +120,17 @@
 
 ## English
 
+### 2026-11-21 · Core device command ACK deadline
+
+- A ten-second monotonic window starts at local command submission to the device socket. Only a matching ACK processed on the current attachment before the deadline settles the command. At expiry, positive and negative ACKs both time out even if the watchdog has not run. A retired timer or send cleanup cannot settle a replacement attempt. [Device commands](core/src/ws-device/commands.ts)
+- Production SMS uses the transport ACK deadline instead of a competing dispatch timer. Without an eligible ACK, the original claimed attempt remains `unknown` and is not resent; a separate matching device result can still reconcile it. An ACK does not establish SMS delivery or call completion. [SMS dispatch](core/src/sms/dispatch.ts)
+- Core, Web, and the existing synthetic demo were rechecked. The retained media are unchanged and do not show real device command outcomes. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Core device handshake and takeover deadline
 
 - One five-second monotonic window starts when Core accepts `/ws/device` and covers `hello`, token verification, the current configuration read, and the serialized takeover. A candidate that has expired before takeover cannot evict the incumbent, send `hello.ok`, or register as a command target. [Device sessions](core/src/ws-device/session.ts)
 - A newer timely authentication still fences older candidates even if its later work expires. Shutdown retains the deadline and joins admitted lookups and device-lane work. Close codes, wire format, and device ACK semantics are unchanged.
-- Core, Web, and the existing synthetic demo were rechecked. Screenshots and recordings are unchanged and do not substitute for handset or deployed proxy acceptance. [Verification](docs/VERIFICATION.md)
+- Core, Web, and the existing synthetic demo were rechecked. Screenshots and recordings are unchanged and do not substitute for handset or deployed proxy acceptance. [Verification](https://github.com/copypasteltd/SIP2IM/blob/7b658f2d1f8c1e42298a05df076e7d586fe0131a/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Core admin first-auth deadline
 

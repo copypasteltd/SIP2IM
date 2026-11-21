@@ -289,7 +289,7 @@ export class DeviceSessions {
             if (this.active.get(state.deviceId) !== socket) return;
             let msg;
             try { msg=parseDeviceMessage(value,'event'); } catch { return; }
-            if (msg.type === 'ack') { this.deps.commands?.acknowledge(state.deviceId,msg.payload as {refId:string;ok:boolean;error:string|null}); return; }
+            if (msg.type === 'ack') { this.deps.commands?.acknowledge(state.deviceId,socket,msg.payload as {refId:string;ok:boolean;error:string|null}); return; }
             if (msg.type === 'heartbeat') {
               const deviceId=state.deviceId, generation=state.generation;
               await this.inDeviceLane(deviceId, async () => {

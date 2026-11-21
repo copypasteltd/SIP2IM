@@ -175,7 +175,8 @@ it('sends only after hello, ignores stale-socket ACKs, and uses a fresh command 
 
 it('retries after a lost ACK on the same attachment with a fresh ID and ignores the old receipt', async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-  const commands = new DeviceCommands();
+  let commandNow = 0;
+  const commands = new DeviceCommands(undefined, () => commandNow);
   const sessions = new DeviceSessions({ authenticate: async () => ({ id: deviceId, enabled: true }), heartbeat: async () => {},
     onEvent: async () => true, heartbeatSec: 30, locale: 'en', commands });
   const wire = socket(), session = sessions.open(wire);
@@ -187,6 +188,7 @@ it('retries after a lost ACK on the same attachment with a fresh ID and ignores 
     const first = sync.refresh(); await turn();
     const firstId = writes()[0]?.id;
     expect(firstId).toEqual(expect.any(String));
+    commandNow = 10_000;
     await vi.advanceTimersByTimeAsync(10_000); await first;
     now = 29_999; await sync.refresh();
     expect(writes()).toHaveLength(1);

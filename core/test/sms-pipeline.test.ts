@@ -30,6 +30,7 @@ it('sends the claimed ID through the active socket and projects its matching ACK
       const transport = commands.prepareSms(task.deviceId,{taskId:task.id,subId:null,slot:0,to:'fake',body:'test'})!;
       return {
         claim:async()=>{ expect(sentId).toBeUndefined(); committedId = transport.commandId; state = 'dispatched'; return true; },
+        ackDeadline:'transport',
         send:transport.send,
         acknowledge:async ack =>{ expect(ack).toEqual({ok:true,error:null}); expect(sentId).toBe(committedId); state = 'accepted'; },
         markUnknown:async()=>{ state = 'unknown'; },
@@ -42,6 +43,56 @@ it('sends the claimed ID through the active socket and projects its matching ACK
   } finally {
     await dispatcher.stop();
     session.close();
+  }
+});
+
+it.each([9999,10000])('projects only a timely ACK processed after a held device message (%d ms)', async processedAt => {
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+  let now=0, state='queued', claimedId:string|undefined;
+  const heartbeatEntered=deferred<void>(), release=deferred<void>(), sent=deferred<string>();
+  const commands=new DeviceCommands(undefined,()=>now);
+  const sessions=new DeviceSessions({authenticate:async()=>({id:deviceId,enabled:true}),heartbeat:async()=>{heartbeatEntered.resolve(); await release.promise;},onEvent:async()=>true,commands,heartbeatSec:30,locale:'en'},()=>now);
+  const close=vi.fn();
+  const send=vi.fn((raw:string)=>{
+    const frame=JSON.parse(raw);
+    if(frame.type==='sms.send') sent.resolve(frame.id);
+  });
+  const session=sessions.open({close,send});
+  const settleAck=vi.fn(async (ref:string)=>{expect(ref).toBe(claimedId);state='accepted';});
+  const settleUnknown=vi.fn(async (ref:string)=>{expect(ref).toBe(claimedId);state='unknown';});
+  const prepare=vi.fn((task:typeof first):PreparedSmsDispatch=>{
+    const transport=commands.prepareSms(task.deviceId,{taskId:task.id,subId:null,slot:0,to:'fake',body:'fixture'})!;
+    return {ackDeadline:'transport',send:transport.send,
+      claim:async()=>{claimedId=transport.commandId;state='dispatched';return true;},
+      acknowledge:async()=>settleAck(transport.commandId),markUnknown:async()=>settleUnknown(transport.commandId)};
+  });
+  const dispatcher=new SmsDispatcher({queued:async()=>state==='queued'?[first]:[],canCommand:async()=>true,simState:async()=> 'ready',mark:async()=>false,prepare},new SimRateLimiter(()=>0),()=>0);
+  try {
+    await session.message(hello);
+    const beat=session.message(env('heartbeat',{battery:null,charging:null,network:'wifi',signalDbm:null,shizuku:'running',paused:false}));
+    await heartbeatEntered.promise;
+    const flushing=dispatcher.flush(deviceId,null), ref=await sent.promise;
+    expect(ref).toBe(claimedId);
+    expect(vi.getTimerCount()).toBe(1); // Only the transport timer decides production ACK admission.
+    const ack=env('ack',{refId:ref,ok:true,error:null});
+    now=5000;
+    const queued=session.message(ack);
+    now=processedAt; // No timers delivered; the session still needs to process the ACK.
+    release.resolve();
+    await Promise.all([beat,queued,flushing]);
+    expect(state).toBe(processedAt<10_000?'accepted':'unknown');
+    expect(settleAck).toHaveBeenCalledTimes(processedAt<10_000?1:0);
+    expect(settleUnknown).toHaveBeenCalledTimes(processedAt<10_000?0:1);
+    await session.message(ack);
+    await dispatcher.flush(deviceId,null);
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(send.mock.calls.map(([raw])=>JSON.parse(raw).type)).toEqual(['hello.ok','sms.send']);
+    expect(close).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    release.resolve(); session.close();
+    try { await Promise.all([dispatcher.stop(),sessions.stop()]); }
+    finally { vi.useRealTimers(); }
   }
 });
 

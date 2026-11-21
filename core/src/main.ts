@@ -227,6 +227,7 @@ const dispatcher=new SmsDispatcher({
   });
     return {
       ...attempt,
+      ackDeadline: 'transport',
       send: transport.send,
       claim: async () => {
         const claimed = await attempt.claim();

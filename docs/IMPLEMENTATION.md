@@ -34,6 +34,8 @@ Core 在握手时提供当前心跳周期和语言。设置变更会唤醒独立
 
 ### 短信调度和 ACK
 
+Core 在准许发送并开始调用本地 socket 发送时开启 10 秒单调窗口，不把申领或发送前的检查计入这段时间。按原设备、原连接及命令 ID 匹配，以 **Core 处理 ACK 时** 为准：已经排队但处理时达到截止的正向和负向 ACK 都不结算该命令。回调迟到不能延长截止；较早触发只等待剩余时间。计时器、替换连接和发送错误只清理各自的在途记录，不以超时代替拒绝 ACK，也不关闭仍健康的连接。生产短信沿用这一条传输时限；不确定的发送按原申领记录为 `unknown`，不重放。独立的短信或通话结果事件仍按各自规则对账。[设备命令](../core/src/ws-device/commands.ts) · [短信派发](../core/src/sms/dispatch.ts)
+
 | 边界 | 可下结论 | 恢复依据 |
 | --- | --- | --- |
 | 管理端提交 | `POST /api/sms` 使用 `Idempotency-Key`。匹配的响应确认 Core 已记录请求。 | Web 在发送前保存原始待确认意图。`GET /api/sms/idempotency` 读取已提交结果。空结果可能与另一个尚未结束的提交并存。 [HTTP 接口](../core/src/http/server.ts) [Web 短信用例](../web/src/features/sms/send-sms.tsx) |
@@ -146,6 +148,8 @@ Core supplies the current heartbeat interval and locale during hello. A settings
 SMS readiness counts and permission alerts share the same time-bounded, three-way interpretation. Both send and receive grants must be unambiguous to count as ready. An independent explicit denial can raise an alert; contradictory or malformed evidence is inconclusive for that permission. Readiness does not prove SMS submission or delivery. [Permission evidence](../core/src/devices/sms-permissions.ts)
 
 ### SMS scheduling and ACKs
+
+Core starts a ten-second monotonic window when it admits and begins the local socket send, not during a durable claim or pre-send checks. It matches the original device, attachment, and command ID when **processing** the ACK. Either ACK polarity at or after the deadline is ineligible, even if the message was queued earlier or the watchdog has not run. Early wakeups use only the remaining time. Timeout, replacement, and send cleanup retire only their exact pending attempt. A timeout is not a NACK and does not close an otherwise healthy connection. Production SMS uses this transport deadline and records unresolved claims as `unknown` under their original identity without replay. Separate SMS or call result events still follow their own reconciliation rules. [Device commands](../core/src/ws-device/commands.ts) · [SMS dispatch](../core/src/sms/dispatch.ts)
 
 | Boundary | What it establishes | Recovery evidence |
 | --- | --- | --- |

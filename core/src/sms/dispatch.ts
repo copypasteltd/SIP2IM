@@ -34,6 +34,8 @@ export interface SmsDispatchPorts extends CommonDispatchPorts {
 
 export interface PreparedSmsDispatch {
   claim(): Promise<boolean>;
+  /** Only for a transport that settles its own bounded ACK window. */
+  ackDeadline?: 'transport';
   send(): Promise<SmsCommandAck>;
   acknowledge(ack: SmsCommandAck): Promise<void>;
   markUnknown(): Promise<void>;
@@ -226,16 +228,17 @@ export class SmsDispatcher {
     return this.rates.has(deviceId) ? this.rates.get(deviceId)! : fallback;
   }
 
-  private async waitForAck(send: () => Promise<SmsCommandAck>): Promise<SmsCommandAck> {
+  private async waitForAck(send: () => Promise<SmsCommandAck>, transportDeadline = false): Promise<SmsCommandAck> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const sent = send();
       this.sends.add(sent);
       void sent.then(() => this.sends.delete(sent), () => this.sends.delete(sent));
+      if (transportDeadline) return await sent;
       const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 10_000); });
       return await Promise.race([sent, deadline]);
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 
@@ -339,7 +342,7 @@ export class SmsDispatcher {
     if (!this.stopped && !this.paused && this.pauseVersion === pauseVersion) {
       // Confirmed changes affect new reservations. A pause fences this claim
       // even if the new setting is successfully reloaded before it returns.
-      try { ack = await this.waitForAck(() => attempt.send()); }
+      try { ack = await this.waitForAck(() => attempt.send(), attempt.ackDeadline === 'transport'); }
       catch { /* A transport error cannot establish what the device did. */ }
     }
     const observed = ack;
