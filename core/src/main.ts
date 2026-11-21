@@ -58,6 +58,7 @@ import { registerSettingsPut } from './settings/routes.js';
 import { registerOperations } from './http/operations.js';
 import { registerWebCallRoutes } from './http/web-calls.js';
 import { PgWebCallStore } from './calls/web-call-store.js';
+import { WebReservationMaintenance } from './calls/web-reservations.js';
 import { WebCalls } from './calls/web-calls.js';
 import {AuditRepository,registerAudit} from './http/audit.js';
 import { DashboardRepository } from './dashboard/repo.js';
@@ -344,6 +345,7 @@ transportLifecycle.defer(stopSessions,{critical:true});
 transportLifecycle.defer(()=>wsCloser.start(),{critical:true});
 transportLifecycle.defer(()=>rejectWorker.stop(),{critical:true});
 transportLifecycle.defer(()=>dispatcher.stop(),{critical:true});
+const webReservations = new WebReservationMaintenance(pool);
 const presence=new TrackedInterval(10000,[
   ()=>stopping.aborted ? undefined : incomingOutbox.flush(),
   ()=>stopping.aborted ? undefined : rejectWorker.flush(),
@@ -353,6 +355,8 @@ const presence=new TrackedInterval(10000,[
   ()=>stopping.aborted ? undefined : activeSmsRateRuntime.refresh(),
   ()=>stopping.aborted ? undefined : maintenanceInvalidation.flush(),
   ()=>stopping.aborted ? undefined : deviceConfigSync.refresh(),
+  () => webReservations.sweep(assertAdmission,
+    sessionId => hub.publishLatest('call.updated', () => calls.summary(sessionId)), stopping),
   async () => {
     if (stopping.aborted) return;
     try { await callFailureAlerts.sweep(assertAdmission, publishOperationalAlert); }

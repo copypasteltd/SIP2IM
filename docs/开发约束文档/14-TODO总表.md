@@ -96,8 +96,8 @@
 | C-CMD-01 | 消息处理管道（K08 §3.10 第 1–7 步，含配对码与 +852 区分） | C-PAIR-01, C-UTIL-02 | FR-PAIR-05 | K08 §3.10 | 表驱动测试覆盖每一分支 | TODO |
 | C-CALL-01 | 设备锁、通道锁 | C-UTIL-01 | — | K08 §3.6 | 并发获取与释放测试 | TODO |
 | C-CALL-02 | 状态机框架：转换写 call_event、计时器、unknown 处理 | C-CALL-01, C-DB-02 | — | K08 §3.6–3.7 | 框架单元测试 | TODO |
-| C-CALL-03 | web_out 会话与 /api/calls 系列（含 Idempotency-Key 存储） | C-CALL-02, C-MED-03, C-DEV-05 | FR-WEB-01/02/03 | K08 §3.7 | TC-WEB-01/03/04（假设备 + 假浏览器） | TODO |
-| C-CALL-04 | 重启对账 | C-CALL-02 | NFR-04 | K08 §3.8 | TC-SCALE-03（集成模拟） | TODO |
+| C-CALL-03 | web_out 会话与 /api/calls 系列（含 Idempotency-Key 存储） | C-CALL-02, C-MED-03, C-DEV-05 | FR-WEB-01/02/03 | K08 §3.7 | TC-WEB-01/03/04（假设备 + 假浏览器）；预约过期与拨号认领已有离线回归，待实库和真机验收 | REVIEW |
+| C-CALL-04 | 重启对账 | C-CALL-02 | NFR-04 | K08 §3.8 | 分批启动对账及未知结果已有离线回归；待 TC-SCALE-03 实库/服务恢复验收 | REVIEW |
 | C-CALL-05 | platform_in 会话 | C-CALL-02, C-MED-03, C-MED-05, C-NOT-01, C-PAIR-01, C-SET-01, C-DEV-05 | FR-IN-01～06, C-12 | K08 §3.7 | TC-IN-01～07（假设备 + 假适配器）；属性测试：平台未 connected 绝不发 call.answer | TODO |
 | C-CALL-06 | platform_out 会话（先拨蜂窝、回拨来源平台、三种计时、进度回复、早期媒体/提示语音） | C-CALL-05, C-CMD-01, C-MED-04, C-SIM-01 | FR-OUT-01～08 | K08 §3.7 | TC-OUT-01～10（假设备 + 假适配器） | TODO |
 | C-SMS-05 | 短信转发两平台（可关闭） | C-SMS-01, C-NOT-01 | FR-SMS-07 | K08 §3.4 | TC-SMS-08 | TODO |
@@ -223,7 +223,7 @@
 | DEC | 1 | 0 | 1 | 0 | 0 | 0 |
 | ENV | 11 | 3 | 0 | 0 | 0 | 0 |
 | P | 7 | 0 | 0 | 0 | 0 | 0 |
-| C | 45 | 0 | 0 | 1 | 2 | 0 |
+| C | 45 | 0 | 0 | 1 | 4 | 0 |
 | A | 18 | 0 | 0 | 0 | 0 | 0 |
 | W | 16 | 0 | 0 | 0 | 0 | 0 |
 | T | 7 | 0 | 0 | 0 | 0 | 0 |
@@ -231,4 +231,4 @@
 | TL | 4 | 0 | 0 | 0 | 0 | 0 |
 | D | 7 | 0 | 0 | 0 | 0 | 0 |
 | G | 9 | 0 | 0 | 0 | 0 | 0 |
-| 合计 | 132 | 3 | 1 | 1 | 2 | 0 |
+| 合计 | 132 | 3 | 1 | 1 | 4 | 0 |

@@ -243,7 +243,12 @@ export class WebCalls {
     if (!await this.refreshOwner(entry)) return this.closeCall(entry, 'dial_admission_changed');
     if (entry.hangupRequested) return;
     if (!ready()) return this.closeCall(entry, 'dial_admission_changed');
-    if (!await this.deps.store.arm(ids, entry.request.simId, sim, prepared.commandId, ready)) return;
+    if (!await this.deps.store.arm(ids, entry.request.simId, sim, prepared.commandId, ready)) {
+      // A committed denial cannot be repaired by retrying the same reservation.
+      // If the owner requested a hangup, its serialized control owns cleanup.
+      if (!entry.hangupRequested) await this.closeCall(entry, 'dial_reservation_unavailable');
+      return;
+    }
     let sendAuthorized = false;
     try { sendAuthorized = !entry.hangupRequested && await this.refreshOwner(entry) && ready(); } catch { /* no proof */ }
     if (!sendAuthorized) {

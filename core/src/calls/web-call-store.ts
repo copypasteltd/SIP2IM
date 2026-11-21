@@ -4,6 +4,7 @@ import { transaction } from '../db/pool.js';
 import { identityConflictEvent, recordCellularCallIdentity } from './generation.js';
 import { setCallState } from './device-events.js';
 import type { CallState } from './coordinator.js';
+import { endUnarmedWebReservation, expiredWebReservation, unarmedWebReservation, WEB_RESERVATION_SWEEP_PAGE } from './web-reservations.js';
 
 export class CallRequestError extends Error {
   constructor(readonly code: string, readonly status = 409) { super(code); }
@@ -39,6 +40,7 @@ export class PgWebCallStore {
 
   async reserve(ids: WebCallIds, request: WebCallRequest, current: () => boolean): Promise<{ existing: WebCallRecord } | { sim: WebCallSim }> {
     return transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
       await client.query('SET LOCAL synchronous_commit = on');
       await client.query("SELECT pg_advisory_xact_lock(198247304,hashtext($1))", [request.key]);
       const existing = await this.find(request.key, client);
@@ -48,7 +50,7 @@ export class PgWebCallStore {
       const busy = await client.query(
         `SELECT 1 FROM call_session s WHERE s.device_id=$1 AND (
           s.state NOT IN ('ended','unknown') OR (s.state='unknown' AND (
-            EXISTS (SELECT 1 FROM call_outbound_attempt a WHERE a.session_id=s.id) OR
+            s.kind='web_out' OR EXISTS (SELECT 1 FROM call_outbound_attempt a WHERE a.session_id=s.id) OR
             EXISTS (SELECT 1 FROM call_leg l WHERE l.session_id=s.id AND l.type='cellular' AND l.state='active')
           ))
         ) LIMIT 1`, [ids.deviceId],
@@ -77,29 +79,22 @@ export class PgWebCallStore {
    * locks lets us inspect only the exact unarmed reservation created by it. */
   async compensateReservation(ids: WebCallIds, key: string): Promise<void> {
     await transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
       await client.query('SET LOCAL synchronous_commit = on');
       await client.query('SELECT pg_advisory_xact_lock(198247304,hashtext($1))', [key]);
       const row = await this.lock(client, ids);
       if (row?.state === 'awaiting_browser' && row.legState === 'created' && row.ack === null) {
-        await this.endUnarmed(client, ids.id, 'reservation_reply_unconfirmed');
+        await endUnarmedWebReservation(client, ids.id, 'reservation_reply_unconfirmed');
       }
     });
   }
 
   private async expireUnarmed(client: pg.PoolClient, deviceId: string): Promise<void> {
     const stale = await client.query<{ id: string }>(
-      `SELECT s.id FROM call_session s WHERE device_id=$1 AND kind='web_out' AND state='awaiting_browser'
-        AND started_at <= clock_timestamp()-interval '30 seconds'
-        AND NOT EXISTS (SELECT 1 FROM call_outbound_attempt a WHERE a.session_id=s.id)
-        AND EXISTS (SELECT 1 FROM call_leg l WHERE l.session_id=s.id AND l.type='cellular' AND l.state='created')
-        ORDER BY s.id FOR UPDATE OF s`, [deviceId],
+      `SELECT s.id FROM call_session s WHERE s.device_id=$1 AND ${expiredWebReservation} AND ${unarmedWebReservation}
+        ORDER BY s.id LIMIT $2`, [deviceId, WEB_RESERVATION_SWEEP_PAGE],
     );
-    for (const row of stale.rows) await this.endUnarmed(client, row.id, 'browser_reservation_expired');
-  }
-
-  private async endUnarmed(client: pg.PoolClient, sessionId: string, reason: string) {
-    await client.query("UPDATE call_leg SET state='ended',ended_at=clock_timestamp(),updated_at=clock_timestamp() WHERE session_id=$1 AND state='created'", [sessionId]);
-    await setCallState(client, sessionId, 'awaiting_browser', 'ended', reason, null);
+    for (const row of stale.rows) await endUnarmedWebReservation(client, row.id, 'browser_reservation_expired', undefined, true);
   }
 
   private async readySim(client: pg.PoolClient, deviceId: string, simId: string): Promise<WebCallSim> {
@@ -129,15 +124,23 @@ export class PgWebCallStore {
 
   async arm(ids: WebCallIds, simId: string, sim: WebCallSim, commandId: string, current: () => boolean): Promise<boolean> {
     return transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
       await client.query('SET LOCAL synchronous_commit = on');
       const present = await this.readySim(client, ids.deviceId, simId);
       if (present.slot !== sim.slot || present.subId !== sim.subId) throw new CallRequestError('SIM_NOT_READY');
       const row = await this.lock(client, ids);
       if (row?.state !== 'awaiting_browser' || row.legState !== 'created') return false;
       authority(current);
-      await client.query('INSERT INTO call_outbound_attempt(session_id,device_id,call_id,command_id) VALUES($1,$2,$3,$4)',
-        [ids.id, ids.deviceId, ids.callId, commandId]);
-      await client.query("UPDATE call_leg SET state='connected',connected_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=$1", [ids.browserLegId]);
+      // Use the database cutoff after waiting for locks, at the durable arm boundary.
+      const attempt = await client.query(`INSERT INTO call_outbound_attempt(session_id,device_id,call_id,command_id)
+        SELECT s.id,s.device_id,$3::text,$4::text FROM call_session s WHERE s.id=$1 AND s.device_id=$2 AND s.sim_id=$5
+          AND ${unarmedWebReservation} AND NOT (${expiredWebReservation})`,
+        [ids.id, ids.deviceId, ids.callId, commandId, simId]);
+      if (attempt.rowCount === 0) return false;
+      if (attempt.rowCount !== 1) throw new Error('Cannot arm web call reservation');
+      const browser = await client.query(`UPDATE call_leg SET state='connected',connected_at=clock_timestamp(),updated_at=clock_timestamp()
+        WHERE id=$1 AND session_id=$2 AND type='browser' AND state='created'`, [ids.browserLegId, ids.id]);
+      if (browser.rowCount !== 1) throw new Error('Browser reservation leg changed');
       const changed = await setCallState(client, ids.id, 'awaiting_browser', 'cell_dialing', 'browser_media_ready', null);
       if (!changed) throw new Error('Call reservation changed');
       authority(current);
@@ -178,6 +181,7 @@ export class PgWebCallStore {
 
   async finish(ids: WebCallIds, reason: string, control?: { type: 'call.hangup' | 'call.dtmf'; commandId: string; current: () => boolean }): Promise<boolean> {
     return transaction(this.pool, async client => {
+      await client.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
       await client.query('SET LOCAL synchronous_commit = on');
       const row = await this.lock(client, ids);
       if (!row) return false;
@@ -190,9 +194,10 @@ export class PgWebCallStore {
         if (control.type === 'call.dtmf') return control.current();
         return setCallState(client, ids.id, row.state, 'ending', reason, null);
       }
-      await client.query("UPDATE call_leg SET state='ended',ended_at=COALESCE(ended_at,clock_timestamp()) WHERE id=$1", [ids.browserLegId]);
+      if (row.state === 'awaiting_browser' && await endUnarmedWebReservation(client, ids.id, reason)) return true;
+      await client.query("UPDATE call_leg SET state='ended',ended_at=COALESCE(ended_at,clock_timestamp()) WHERE id=$1 AND session_id=$2 AND type='browser'", [ids.browserLegId, ids.id]);
       if (row.state === 'ended' || row.state === 'unknown') return false;
-      const target = row.state === 'awaiting_browser' || row.legState === 'disconnected' ? 'ended' : 'unknown';
+      const target = row.legState === 'disconnected' ? 'ended' : 'unknown';
       return setCallState(client, ids.id, row.state, target, reason, target === 'ended' ? null : 'unknown');
     });
   }

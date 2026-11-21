@@ -154,14 +154,14 @@ platform_dialing 的事件：
 | 状态 | 进入动作 | 事件 → 下一状态 |
 |---|---|---|
 | reserving | 取设备锁；创建浏览器腿与蜂窝腿；返回 mediaToken | 成功 → awaiting_browser |
-| awaiting_browser | 等待浏览器媒体连接认证，最长 10 秒 | 已连接 → cell_dialing；超时 → ending（timeout） |
+| awaiting_browser | 等待浏览器媒体认证；Core 认领须在数据库保存的 30 秒截止前通过 | 证明原预约和设备/SIM 等仍有效才进入 cell_dialing。过期关闭需要未拨号的持久证据；证据缺失保留 unknown。 |
 | cell_dialing | 设备 call.dial；早期媒体转发给浏览器（**web_out 不播放提示语音**） | 被叫 active → bridged；被叫 disconnected → ending；浏览器挂断 → ending |
 | bridged | 双向路由 | 任一腿结束 → ending |
 | ending | 结束存活的腿 | → ended |
 
 ### 3.8 重启对账（reconcile.ts）
 
-启动时：所有未 ended 的会话置 unknown → 对在线设备发 call.hangup、对适配器发 call.hangup → 置 ended（end_cause = unknown）→ 写事件；**不重拨**。所有 dispatched 的短信任务置 unknown。
+启动对账在取得数据库独占所有权后、对外监听前执行。每批按会话 ID 选择并锁定最多 64 条未结会话或未结证据。仅当浏览器预约有原始身份及创建记录、两条未使用的腿且无操作证据时，才直接结束。其余未结会话记为 `unknown`，未结意图与 ACK 单独对账；已经确认的证据保留。提交不明或所有权丢失停止启动，先前已提交的批次保留。不会自动挂断或重拨。短信的独立启动对账不重发已派发任务。
 
 ### 3.9 channels
 

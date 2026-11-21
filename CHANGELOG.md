@@ -4,12 +4,18 @@
 
 ## 简体中文
 
+### 2026-11-21 · 通话启动对账与过期预约
+
+- Core 在对外监听前分批核对通话，每个事务最多锁定 64 条会话，只处理未结记录及未结证据。提交未确认时停止后续批次；不重拨、不自动挂断。[启动对账](core/src/calls/reconcile.ts)
+- 浏览器拨号认领按数据库时钟检查 30 秒预约期限。后台独立巡检，在复核原始身份事件、两条未使用的腿和无拨号尝试后，才关闭过期预约。有矛盾或缺少证据的未知 Web 会话仍阻止再次拨号。[预约证明与回收](core/src/calls/web-reservations.ts) · [通话存储](core/src/calls/web-call-store.ts)
+- 本轮不启用蜂窝或平台通话能力。Web、合成演示和实录素材未变，已复验。[本轮验证](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 短信跨设备调度
 
 - Core 每次发现最多 32 台有排队任务的设备，按设备 ID 续扫和回环；设备派发最多并发 4 轮，重复唤醒合并。关停取消尚未开始的普通唤醒，已开始的发送和结果对账仍排空。[扫描](core/src/sms/queue-repo.ts) · [派发](core/src/sms/dispatch.ts)
 - 有其他设备等待时，慢 ACK 结束本次处理后会让位。下一轮继续轮转 SIM，保持各 SIM 自身 FIFO。结果不确定时仍不重发，持久化重试只核对原尝试。[调度回归](core/test/sms-device-admission.test.ts)
 - 当前连接的新 SIM 快照提交后可以提前唤醒重新检查，心跳和周期扫描仍为兜底。快照不授予发送资格。[事件投影](core/src/devices/event-producer.ts)
-- 本轮未改动 Web、演示和已发布的合成素材；复验了现有流程。[本轮验证](docs/VERIFICATION.md)
+- 本轮未改动 Web、演示和已发布的合成素材；复验了现有流程。[本轮验证](https://github.com/copypasteltd/SIP2IM/blob/9e69883fbc04f1d04c2c56e7f600910b52e4724f/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 告警分页与确认审计
 
@@ -49,12 +55,18 @@
 
 ## English
 
+### 2026-11-21 · Call restart recovery and expired reservations
+
+- Before accepting traffic, Core reconciles call records in transactions of at most 64 locked sessions. It touches only unsettled call state and evidence. An unconfirmed commit stops subsequent batches. Recovery does not redial or automatically hang up. [Startup reconciliation](core/src/calls/reconcile.ts)
+- Durable browser dial admission checks the 30-second reservation cutoff using the database clock. A separate sweep closes expired reservations only after confirming the original identity event, two unused legs, and no dial attempt. A Web call with contradictory or missing evidence stays busy when its outcome is unknown. [Reservation proof and sweep](core/src/calls/web-reservations.ts) · [Call store](core/src/calls/web-call-store.ts)
+- This does not enable cellular or platform calling. Web, the synthetic demo, and the recording were unchanged and rechecked. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · SMS scheduling across devices
 
 - Core discovers up to 32 devices with queued work per scan, advancing and wrapping by device ID. It allows four active device turns and coalesces repeated wakes. Shutdown cancels unstarted ordinary wakes and drains admitted sends and result writes. [Discovery](core/src/sms/queue-repo.ts) · [Dispatcher](core/src/sms/dispatch.ts)
 - After a slow ACK settles, another waiting device can take the slot. A later turn resumes SIM rotation without changing each SIM's FIFO. An uncertain action is never resent; a persistence retry reconciles only the original attempt. [Scheduling regressions](core/test/sms-device-admission.test.ts)
 - A newly committed SIM snapshot on the current attachment can wake an eligibility recheck. Heartbeats and periodic scans remain fallbacks. A snapshot does not authorize a send. [Event producer](core/src/devices/event-producer.ts)
-- Web, the demo, and the published synthetic media are unchanged; the existing workflow was rechecked. [Verification](docs/VERIFICATION.md)
+- Web, the demo, and the published synthetic media are unchanged; the existing workflow was rechecked. [Verification](https://github.com/copypasteltd/SIP2IM/blob/9e69883fbc04f1d04c2c56e7f600910b52e4724f/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Alert history and acknowledgement audit
 

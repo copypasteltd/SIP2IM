@@ -125,6 +125,24 @@ describe('browser call orchestration', () => {
     expect(f.sent).toHaveBeenCalledTimes(3);
   });
 
+  it('releases in-memory media without sending or retrying when durable arming is denied', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    const f = fixture();
+    const created = await f.calls.create(request, 'owner');
+    const { browser, socket } = openBrowser(f, created);
+    f.store.arm.mockResolvedValueOnce(false);
+    browser.message(silence(), true);
+    await step(f, 300);
+    expect(f.store.arm).toHaveBeenCalledOnce();
+    expect(f.sent).not.toHaveBeenCalled();
+    expect(f.store.acknowledge).not.toHaveBeenCalled();
+    expect(f.store.finish).toHaveBeenCalledWith(f.identifiers(), 'dial_reservation_unavailable');
+    expect(socket.close).toHaveBeenCalledWith(4404);
+    await step(f, 300);
+    expect(f.store.arm).toHaveBeenCalledOnce();
+    expect(f.sent).not.toHaveBeenCalled();
+  });
+
   it('never dials on a lost owner, a replaced attachment, or browser readiness expiry', async () => {
     vi.useFakeTimers({ now: 100_000 });
     for (const lose of [(f: ReturnType<typeof fixture>) => f.expire(), (f: ReturnType<typeof fixture>) => f.disconnect(), () => vi.setSystemTime(Date.now() + 10_001)]) {
