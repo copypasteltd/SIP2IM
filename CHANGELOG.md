@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · Android 队头确认超时退避
+
+- 握手只重置连接失败退避，不重置同一持久绑定和队头事件的确认超时。重复超时按 1、2、4、8、16、30 秒递增，封顶 30 秒；重连取连接退避与队头退避中较长的一个。只有确认删除原事件，或读到该绑定的队头已变或为空，才清除对应的队头退避。[退避实现](android/app/src/main/kotlin/io/voipgw/gateway/core/OutboxReconnectBackoff.kt)
+- 只有当前连接的匹配正向 ACK 且本地删除恰好一条记录，才推进队列。当前事件的超时回调主动退出原连接，仍需确认释放持久代次才重连；旧回调不能操作新连接。事件 ID、载荷、时间与 FIFO 不变。不跳过短信队头，不重复下发发送短信的命令。
+- 本轮 Core、Web、演示和录屏未改动，离线复验不等于真机接入。[验证记录](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Android 握手超时恢复
 
 - Android 在当前 WebSocket 打开后最多等待 10 秒接纳 `hello.ok`，按单调时钟判断。即使定时回调还没执行，过期应答也不能应用配置或开启心跳和队列发送。[握手时限](android/app/src/main/kotlin/io/voipgw/gateway/core/HelloDeadline.kt)
 - 超时只退出当前连接。确认持久绑定的原代次已释放才按现有退避重连，不依赖旧 socket 再回调。旧定时任务不能影响新连接；已有终止状态或释放结果不明时仍停止并保留核对依据。不清空待发事件，不改变设备协议。[前台服务](android/app/src/main/kotlin/io/voipgw/gateway/core/GatewayService.kt)
-- 原生离线 JVM 测试、lint 和调试构建已复验；未安装真机。现有合成演示及录屏未变。[验证记录](docs/VERIFICATION.md)
+- 原生离线 JVM 测试、lint 和调试构建已复验；未安装真机。现有合成演示及录屏未变。[验证记录](https://github.com/copypasteltd/SIP2IM/blob/c5c96f31a4eb4252c006032f1d61a3845585b707/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 入站短信通知与数据库连接隔离
 
@@ -91,11 +97,17 @@
 
 ## English
 
+### 2026-11-21 · Android backoff for unacknowledged queue heads
+
+- A successful hello resets only transport backoff. Repeated ACK timeouts for the same durable binding and event ratchet the queue-head delay through 1, 2, 4, 8, 16, and 30 seconds, capped at 30. Reconnect uses the longer delay. Confirmed deletion of the original event or a successful read of a different or empty head clears the streak. [Backoff policy](android/app/src/main/kotlin/io/voipgw/gateway/core/OutboxReconnectBackoff.kt)
+- Only a matching positive ACK on the current connection and a confirmed one-row deletion advance the queue. The live watchdog retires its own connection; retry still requires confirmed release of the durable generation. Stale callbacks cannot affect a replacement. FIFO, event ID, payload, and timestamp are unchanged. This does not skip a blocked SMS head or resubmit SMS commands.
+- Core, Web, and the existing synthetic demo and recording are unchanged. Offline checks do not establish handset behavior. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Android handshake timeout recovery
 
 - After the current WebSocket opens, Android has ten seconds on a monotonic clock to admit `hello.ok`. Even if the timeout callback has not run, a late reply cannot apply configuration or start heartbeats and queue dispatch. [Hello deadline](android/app/src/main/kotlin/io/voipgw/gateway/core/HelloDeadline.kt)
 - Expiry retires only the current connection. Reconnect uses the existing backoff and requires confirmed release of the original durable generation; it does not depend on a later socket callback. Old timers cannot affect a replacement connection. A prior terminal observation or unconfirmed release still prevents reconnect. Pending events and the wire format are unchanged. [Foreground service](android/app/src/main/kotlin/io/voipgw/gateway/core/GatewayService.kt)
-- Native offline JVM tests, lint, and the debug build were rechecked; nothing was installed on a handset. The synthetic demo and recording are unchanged. [Verification](docs/VERIFICATION.md)
+- Native offline JVM tests, lint, and the debug build were rechecked; nothing was installed on a handset. The synthetic demo and recording are unchanged. [Verification](https://github.com/copypasteltd/SIP2IM/blob/c5c96f31a4eb4252c006032f1d61a3845585b707/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Incoming SMS notification and pool isolation
 

@@ -47,7 +47,6 @@ class GatewayService : Service() {
     private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).followRedirects(false).build()
     private var socket: WebSocket? = null
     private var session: Session? = null
-    private var reconnects = 0
     private var reconnectTicket = 0L
     @Volatile private var terminal = false
     private var connectionAttempted = false
@@ -58,10 +57,16 @@ class GatewayService : Service() {
     private lateinit var commandLedger: CommandLedger
     private lateinit var smsStore: SmsTaskStore
     private val pacer = OutboxPacer()
+    private val reconnectBackoff = OutboxReconnectBackoff(pacer)
 
     private inner class Session(val connection: BindingConnection) {
         val bindingId get() = connection.identity.id
         var helloDeadline: HelloDeadline? = null
+        val eventAck = OutboxAckWatchdog(
+            postDelayed = { task, delay -> handler.postDelayed(task, delay) },
+            removeCallbacks = { handler.removeCallbacks(it) },
+            withConnectionLock = { work -> lifecycle.run { synchronized(connectionLock) { work() } } },
+        )
         val drain = CooperativeDrain(
             post = { task -> handler.post { lifecycle.run { task.run() } }; Unit },
             stopped = { stopped || !execution.isReady(connection) },
@@ -178,7 +183,7 @@ class GatewayService : Service() {
                     postDelayed = { task, delay -> handler.postDelayed(task, delay) },
                     removeCallbacks = { handler.removeCallbacks(it) },
                     withCurrent = { work -> current(webSocket, work) },
-                    onExpired = { retireHandshake(active, webSocket) },
+                    onExpired = { retireConnection(active, webSocket) },
                 )
                 active.helloDeadline = deadline
                 if (!deadline.arm()) return@current
@@ -188,7 +193,7 @@ class GatewayService : Service() {
                     .put("apkVersion", info.versionName ?: "unknown").put("apkCode", info.versionCode)
                     .put("protocol", 1).put("manufacturer", Build.MANUFACTURER).put("model", Build.MODEL)
                     .put("apiLevel", Build.VERSION.SDK_INT).put("locale", Locale.getDefault().toString().replace('_', '-'))))
-            } catch (_: Exception) { retireHandshake(active, webSocket) }
+            } catch (_: Exception) { retireConnection(active, webSocket) }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) = current(webSocket) {
@@ -205,8 +210,8 @@ class GatewayService : Service() {
                 execution.runReady(active.connection, { false }) {
                     when (type) {
                         "ack" -> {
-                            val ref = payload.getString("refId")
-                            val ok = payload.optBoolean("ok", false)
+                            val ref = payload.opt("refId") as? String ?: return@runReady Unit
+                            val ok = payload.opt("ok") == true && payload.opt("error") === JSONObject.NULL
                             if (ref == pendingSnapshotId) {
                                 pendingSnapshotId = null
                                 if (ok) lastSnapshotAckAt = android.os.SystemClock.elapsedRealtime() else lastSnapshotState = null
@@ -242,7 +247,7 @@ class GatewayService : Service() {
     }
 
     private fun handleHello(active: Session, ws: WebSocket, payload: JSONObject?) {
-        val deadline = active.helloDeadline ?: return retireHandshake(active, ws)
+        val deadline = active.helloDeadline ?: return retireConnection(active, ws)
         if (!deadline.allowsReply()) return
         val hello = execution.hello(active.connection, payload?.opt("deviceId")) {
             val values = configValues(checkNotNull(payload).getJSONObject("config"))
@@ -255,7 +260,7 @@ class GatewayService : Service() {
         when (hello) {
             GatewayExecution.Hello.ACCEPTED -> {
                 deadline.accepted()
-                reconnects = 0
+                reconnectBackoff.helloAccepted()
                 rescheduleHeartbeat()
                 flushNext(active, ws)
             }
@@ -478,12 +483,13 @@ class GatewayService : Service() {
 
     // Callers of connection mutation methods hold connectionLock.
     private fun cancelConnection(active: Session, ws: WebSocket) {
+        active.eventAck.cancel()
         active.connection.observeDisconnect()
         if (active.connection.terminalReason != null) finishConnection(active)
         ws.cancel()
     }
 
-    private fun retireHandshake(active: Session, ws: WebSocket) {
+    private fun retireConnection(active: Session, ws: WebSocket) {
         if (stopped || session !== active || socket !== ws) return
         active.connection.observeDisconnect()
         // Do not leave local recovery dependent on a later transport callback.
@@ -493,6 +499,7 @@ class GatewayService : Service() {
     private fun finishConnection(active: Session) {
         if (stopped || session !== active) return
         active.helloDeadline?.close()
+        active.eventAck.cancel()
         session = null; socket = null; pacer.reset()
         val released = execution.close(active.connection)
         val ticket = ++reconnectTicket
@@ -506,8 +513,7 @@ class GatewayService : Service() {
             stopSelf()
             return
         }
-        val delay = longArrayOf(1000, 2000, 4000, 8000, 16000, 30000)[reconnects.coerceAtMost(5)]
-        reconnects = (reconnects + 1).coerceAtMost(5)
+        val delay = reconnectBackoff.nextDelay(active.bindingId)
         handler.postDelayed({ lifecycle.run {
             synchronized(connectionLock) {
                 if (!stopped && !terminal && ticket == reconnectTicket) connect()
@@ -516,25 +522,30 @@ class GatewayService : Service() {
     }
 
     private fun acknowledgeAndFlush(active: Session, ws: WebSocket, ref: String, ok: Boolean) {
-        if (pacer.acknowledged(pacer.generation(), ref, ok) { outbox.acknowledge(active.bindingId, ref) }) flushNext(active, ws)
+        if (reconnectBackoff.acknowledge(active.connection, pacer.generation(), ref, ok) { outbox.acknowledge(active.bindingId, ref) }) {
+            active.eventAck.cancel()
+            flushNext(active, ws)
+        }
     }
 
     private fun flushNext(active: Session, ws: WebSocket) {
         try {
             execution.runReady(active.connection, { false }) {
                 if (pacer.inFlight != null) return@runReady
-                val event = outbox.pendingHead(active.bindingId) ?: return@runReady
+                val event = outbox.pendingHead(active.bindingId)
+                if (!execution.isReady(active.connection)) return@runReady
+                reconnectBackoff.headObserved(active.bindingId, event?.id)
+                if (event == null) return@runReady
                 val frame = envelope(event.type, JSONObject(event.payload), event.id, event.createdAt)
                 if (!execution.isReady(active.connection)) return@runReady
                 check(ws.send(frame.toString()))
                 val generation = pacer.generation()
                 check(pacer.sent(generation, event.id))
-                val scheduled = handler.postDelayed({ lifecycle.run {
-                    synchronized(connectionLock) {
-                        if (!stopped && session === active && pacer.isInFlight(generation, event.id)) cancelConnection(active, ws)
-                    }
-                } }, 10000)
-                check(scheduled)
+                active.eventAck.arm {
+                    if (!stopped && session === active && socket === ws && execution.isReady(active.connection) &&
+                        reconnectBackoff.timeout(active.connection, generation, event.id)
+                    ) retireConnection(active, ws)
+                }
                 outbox.attempted(active.bindingId, event.id)
             }
         } catch (_: Exception) { cancelConnection(active, ws) }
@@ -549,6 +560,7 @@ class GatewayService : Service() {
             val previous = socket
             session?.let {
                 it.helloDeadline?.close()
+                it.eventAck.cancel()
                 execution.close(it.connection)
             }
             session = null; socket = null; pacer.reset()

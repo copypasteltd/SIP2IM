@@ -137,7 +137,6 @@ internal class Outbox private constructor(private val app: Context) : SQLiteOpen
         writableDatabase.execSQL("UPDATE outbox SET attempts = attempts + 1 WHERE binding_id = ? AND id = ?", arrayOf(bindingId, id))
     }
 
-    internal fun acknowledge(bindingId: String, id: String) {
+    internal fun acknowledge(bindingId: String, id: String): Int =
         writableDatabase.delete("outbox", "binding_id = ? AND id = ?", arrayOf(bindingId, id))
-    }
 }

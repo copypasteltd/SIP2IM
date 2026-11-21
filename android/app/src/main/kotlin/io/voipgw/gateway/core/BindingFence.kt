@@ -15,6 +15,9 @@ internal class BindingConnection(val identity: BoundIdentity, val generation: St
     val disconnected: Boolean get() = disconnect.get() != null
     val terminalReason: String? get() = disconnect.get()?.terminalReason
 
+    /** Win the local timeout only if the transport has not already reported a close. */
+    fun tryBeginRetryableDisconnect(): Boolean = disconnect.compareAndSet(null, Disconnect(null))
+
     // Stop admitting new effects even if the close callback is waiting for the service lock.
     fun observeDisconnect(reason: String? = null) {
         while (true) {
