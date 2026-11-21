@@ -11,6 +11,11 @@ export interface QueuedSms {
 }
 export type SmsCommandAck = { ok: boolean; error: string | null };
 type Rate = number | null;
+type PendingWake = { resolve(): void; reject(error: unknown): void };
+
+export const SMS_ACTIVE_DEVICES = 4;
+export const SMS_WAITING_WAKES = 256;
+const DEVICE_TURN_MS = 2_000;
 
 interface CommonDispatchPorts {
   queued(deviceId: string): Promise<QueuedSms[]>;
@@ -41,7 +46,7 @@ export interface DurableSmsDispatchPorts extends CommonDispatchPorts {
 }
 
 /** Each SIM visits once per round; oldest tasks still win within their own SIM. */
-function* fairOrder(tasks: QueuedSms[]): Iterable<QueuedSms> {
+function* fairOrder(tasks: QueuedSms[], afterSim?: string): Iterable<QueuedSms> {
   const sims = new Map<string, QueuedSms[]>();
   for (const task of tasks.slice().sort((a, b) => a.createdAt - b.createdAt)) {
     const sim = sims.get(task.simId);
@@ -49,6 +54,14 @@ function* fairOrder(tasks: QueuedSms[]): Iterable<QueuedSms> {
     else sims.set(task.simId, [task]);
   }
   let next = [...sims.values()];
+  if (afterSim !== undefined) {
+    // A yielded turn may have consumed its old queue head or lost a SIM.
+    // Rotate by SIM ID, not by a shifting head timestamp or array offset.
+    const ids = [...sims.keys()].sort();
+    const start = ids.findIndex(id => id > afterSim);
+    const ordered = start < 0 ? ids : [...ids.slice(start), ...ids.slice(0, start)];
+    next = ordered.map(id => sims.get(id)!);
+  }
   for (let index = 0; next.length; index++) {
     const current = next;
     next = [];
@@ -61,6 +74,8 @@ function* fairOrder(tasks: QueuedSms[]): Iterable<QueuedSms> {
 
 export class SmsDispatcher {
   private readonly running = new Set<string>();
+  private readonly waiting = new Map<string, PendingWake>();
+  private readonly simAfter = new Map<string, string>();
   private readonly dirty = new Set<string>();
   private readonly rates = new Map<string, Rate>();
   private globalRate?: { value: Rate | undefined };
@@ -73,7 +88,7 @@ export class SmsDispatcher {
   private stopped = false;
   private stopping?: Promise<void>;
 
-  constructor(private readonly ports: SmsDispatchPorts | DurableSmsDispatchPorts, private readonly limiter: SimRateLimiter, private readonly now: () => number = Date.now) {}
+  constructor(private readonly ports: SmsDispatchPorts | DurableSmsDispatchPorts, private readonly limiter: SimRateLimiter, private readonly now: () => number = () => performance.now()) {}
 
   /** undefined forbids transmission; unlike null, it is not an unlimited rate. */
   setRate(rate: Rate | undefined): void {
@@ -81,6 +96,7 @@ export class SmsDispatcher {
     if (rate !== undefined) this.limiter.setGlobalRate(rate);
     else this.pauseVersion++;
     this.globalRate = { value: rate };
+    if (rate === undefined) this.releaseWaiting(id => !this.settlements.has(id));
     for (const id of [...this.wakeups.keys()]) {
       this.cancelWakeup(id);
       if (rate !== undefined || this.settlements.has(id)) this.schedule(id, rate ?? null, 1);
@@ -98,6 +114,8 @@ export class SmsDispatcher {
     this.stopped = true;
     for (const {timer} of this.wakeups.values()) clearTimeout(timer);
     this.wakeups.clear();
+    this.simAfter.clear();
+    this.releaseWaiting(() => true);
     this.stopping = (async () => {
       await Promise.allSettled([...this.active]);
       await Promise.allSettled([...this.sends]);
@@ -149,13 +167,58 @@ export class SmsDispatcher {
   flush(deviceId: string, rate: Rate): Promise<void> {
     if (this.stopped) return Promise.resolve();
     this.wakeVersions.delete(deviceId);
+    if (this.paused && !this.settlements.has(deviceId)) return Promise.resolve();
+    if (this.running.has(deviceId)) {
+      this.rates.set(deviceId, rate);
+      this.dirty.add(deviceId);
+      return Promise.resolve();
+    }
+    if (this.waiting.has(deviceId)) {
+      this.rates.set(deviceId, rate);
+      return Promise.resolve();
+    }
+    // Wakeups are hints; the periodic inventory can rediscover a durable task.
+    // Settlement is different: it may have no queued task left to rediscover.
+    if (this.waiting.size >= SMS_WAITING_WAKES && !this.settlements.has(deviceId)) return Promise.resolve();
     this.rates.set(deviceId, rate);
-    if (this.running.has(deviceId)) { this.dirty.add(deviceId); return Promise.resolve(); }
-    this.running.add(deviceId);
-    const work = Promise.resolve().then(() => this.run(deviceId, rate));
-    this.active.add(work);
-    void work.then(() => this.active.delete(work), () => this.active.delete(work));
-    return work;
+    const completion = new Promise<void>((resolve, reject) => this.waiting.set(deviceId, { resolve, reject }));
+    this.admit();
+    return completion;
+  }
+
+  private releaseWaiting(release: (id: string) => boolean): void {
+    for (const [id, wake] of this.waiting) {
+      if (!release(id)) continue;
+      this.waiting.delete(id);
+      this.rates.delete(id);
+      wake.resolve();
+    }
+  }
+
+  private admit(): void {
+    while (!this.stopped && this.running.size < SMS_ACTIVE_DEVICES) {
+      const item = this.waiting.entries().next().value;
+      if (!item) break;
+      const [id, wake] = item;
+      this.waiting.delete(id);
+      if (this.paused && !this.settlements.has(id)) {
+        this.rates.delete(id);
+        wake.resolve();
+        continue;
+      }
+      const rate = this.rates.get(id) ?? null;
+      this.running.add(id);
+      // Register before a port can synchronously invoke stop().
+      const work = Promise.resolve().then(() => this.run(id, rate));
+      this.active.add(work);
+      void work.then(() => {
+        this.active.delete(work);
+        wake.resolve();
+      }, error => {
+        this.active.delete(work);
+        wake.reject(error);
+      });
+    }
   }
 
   private rateFor(deviceId: string, fallback: Rate): Rate {
@@ -184,9 +247,22 @@ export class SmsDispatcher {
   }
 
   private async run(deviceId: string, fallback: Rate): Promise<void> {
+    const deadline = this.now() + DEVICE_TURN_MS;
+    const shouldYield = () => this.waiting.size > 0 && this.now() >= deadline;
+    let lastConsidered: string | undefined;
+    const deferTurn = () => {
+      if (!this.stopped && !this.paused && lastConsidered !== undefined) {
+        this.simAfter.delete(deviceId);
+        this.simAfter.set(deviceId, lastConsidered);
+        // Fairness hints are not durable task state and must stay bounded.
+        if (this.simAfter.size > SMS_WAITING_WAKES) this.simAfter.delete(this.simAfter.keys().next().value!);
+      }
+      this.schedule(deviceId, this.rateFor(deviceId, fallback), 1);
+    };
     try {
       // Coalesce a direct wake while busy, but yield if wakes keep arriving.
       for (let pass = 0; pass < 2 && !this.stopped; pass++) {
+        if (pass > 0 && shouldYield()) { deferTurn(); return; }
         this.dirty.delete(deviceId);
         // Recover persistence, including a claim that may have committed
         // despite throwing, before admitting queued work. Never send in recovery.
@@ -196,9 +272,15 @@ export class SmsDispatcher {
         this.cancelWakeup(deviceId);
         let more = false;
         const blocked = new Set<string>();
-        for (const task of fairOrder(tasks)) {
+        let considered = false;
+        for (const task of fairOrder(tasks, this.simAfter.get(deviceId))) {
           if (this.stopped || this.paused) break;
           if (blocked.has(task.simId)) continue;
+          // Finish an admitted task, then give other devices a slot before
+          // starting another slow claim or waiting for another ACK.
+          if (considered && shouldYield()) { deferTurn(); return; }
+          considered = true;
+          lastConsidered = task.simId;
           if (task.expired) {
             if (await this.ports.mark(task.id, 'queued', 'failed', 'DEVICE_OFFLINE')) more ||= !!task.moreForSim;
             else blocked.add(task.simId);
@@ -228,6 +310,7 @@ export class SmsDispatcher {
             blocked.add(task.simId);
           }
         }
+        this.simAfter.delete(deviceId);
         if (more) this.schedule(deviceId, this.rateFor(deviceId, fallback), 1);
         if (!this.dirty.has(deviceId)) break;
       }
@@ -239,6 +322,7 @@ export class SmsDispatcher {
       this.running.delete(deviceId);
       this.dirty.delete(deviceId);
       this.rates.delete(deviceId);
+      this.admit();
     }
   }
 

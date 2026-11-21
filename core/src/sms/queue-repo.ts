@@ -4,6 +4,13 @@ import {replaySmsResults} from './results.js';
 import type {QueuedSms} from './dispatch.js';
 export interface DispatchRecord extends QueuedSms {slot:number;subId:number|null;to:string;body:string}
 export const SMS_QUEUE_PER_SIM = 8;
+export const SMS_QUEUED_DEVICE_PAGE = 32;
+
+export interface QueuedDevicePage {
+  ids: string[];
+  /** Exclusive cursor for the next page, or null to wrap on the next pass. */
+  nextAfter: string | null;
+}
 
 export class SmsQueueRepository {
  constructor(private readonly pool:pg.Pool){}
@@ -69,13 +76,21 @@ export class SmsQueueRepository {
   });
  }
 
- async queuedDevices():Promise<string[]>{
-  const r=await this.pool.query<{deviceId:string}>(`SELECT d.id AS "deviceId" FROM device d
-    WHERE d.online AND d.enabled AND NOT d.paused AND d.revoked_at IS NULL AND EXISTS (
-      SELECT 1 FROM sms_task t JOIN sms_message m ON m.id=t.sms_message_id JOIN sim s ON s.id=m.sim_id
-      WHERE m.device_id=d.id AND m.direction='out' AND t.state='queued' AND s.device_id=d.id AND s.retired_at IS NULL
-    ) ORDER BY d.id`);
-  return r.rows.map(row=>row.deviceId);
+ async queuedDevices(after: string | null): Promise<QueuedDevicePage> {
+  // Compare the key, not a joined cursor row: the previous device may no
+  // longer exist or qualify. Keep lookahead out of the dispatched page.
+  const limit = SMS_QUEUED_DEVICE_PAGE + 1;
+  const r = await this.pool.query<{deviceId: string}>(
+   `SELECT d.id AS "deviceId" FROM device d
+    WHERE d.online AND d.enabled AND NOT d.paused AND d.revoked_at IS NULL
+      ${after === null ? '' : 'AND d.id > $2'} AND EXISTS (
+        SELECT 1 FROM sms_task t JOIN sms_message m ON m.id=t.sms_message_id JOIN sim s ON s.id=m.sim_id
+        WHERE m.device_id=d.id AND m.direction='out' AND t.state='queued' AND s.device_id=d.id AND s.retired_at IS NULL
+      ) ORDER BY d.id LIMIT $1`,
+   after === null ? [limit] : [limit, after],
+  );
+  const ids = r.rows.slice(0, SMS_QUEUED_DEVICE_PAGE).map(row => row.deviceId);
+  return { ids, nextAfter: r.rows.length > SMS_QUEUED_DEVICE_PAGE ? ids.at(-1)! : null };
  }
  async rate():Promise<number|null>{
   const r=await this.pool.query<{value:unknown}>("SELECT value FROM setting WHERE key='sms_rate_per_min'");

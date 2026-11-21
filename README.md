@@ -9,7 +9,7 @@ VOIP Gateway 把 Android 设备及其 SIM 接入一个管理后台，提供设�
 ### 当前状态
 
 - **Android** 已有 v2 绑定和待确认恢复、前台连接、SIM 状态观察及短信收发代码。以测试夹具和本机构建为验证范围，真机、SIM、厂商限制、系统权限和运营商回执仍需独立验收。
-- **Core 与 Web** 提供管理接口、设备与短信页面、任务反馈和异常记录。标准运行方式为一个 Core 进程独占一个 PostgreSQL 数据库。绑定和短信的 HTTP 响应、队列 ACK、持久化 ACK 各有独立的含义。 在线设备的心跳和语言设置按已提交值对账，HTTP 保存不等于设备已确认。
+- **Core 与 Web** 提供管理接口、设备与短信页面、任务反馈和异常记录。标准运行方式为一个 Core 进程独占一个 PostgreSQL 数据库。绑定和短信的 HTTP 响应、队列 ACK、持久化 ACK 各有独立的含义。 在线设备的心跳和语言设置按已提交值对账，HTTP 保存不等于设备已确认。 短信以设备为单位限量派发，同一 SIM 保持排队顺序。
 - **通话与平台** 目前包括协议、状态协调、媒体基础和测试替身。Android 的通话命令返回不支持。完整双向电话桥接、真实 QQ/Telegram 接入及生产运行仍待完成实现或验收。演示使用合成数据。
 
 ### 快速演示
@@ -70,7 +70,7 @@ VOIP Gateway connects Android devices and their SIMs to an administration consol
 ### Project status
 
 - **Android** implements v2 binding and pending-attempt recovery, a foreground connection, SIM observations, and SMS send and receive code. Fixtures and native builds are the available verification scope. Physical devices, SIMs, manufacturer restrictions, OS permissions, and carrier receipts need separate acceptance.
-- **Core and Web** provide management endpoints, device and SMS pages, task feedback, and exception records. The supported topology is a single Core process per PostgreSQL database. HTTP responses, queue ACKs, and persistence ACKs each have a specific meaning. Connected devices reconcile heartbeat and locale against committed settings; saving in the browser is not a device acknowledgement.
+- **Core and Web** provide management endpoints, device and SMS pages, task feedback, and exception records. The supported topology is a single Core process per PostgreSQL database. HTTP responses, queue ACKs, and persistence ACKs each have a specific meaning. Connected devices reconcile heartbeat and locale against committed settings; saving in the browser is not a device acknowledgement. SMS dispatch is bounded across devices and preserves each SIM’s queue order.
 - **Calls and platforms** have protocol, state and media foundations and test doubles. Android reports call commands as unsupported. Bidirectional call bridging, live QQ/Telegram integration and production operation still require implementation or acceptance. The demo uses synthetic data.
 
 ### Quick demo

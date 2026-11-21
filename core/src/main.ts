@@ -237,15 +237,19 @@ const dispatcher=new SmsDispatcher({
     };
   },
 }, new SimRateLimiter());
+stopping.addEventListener('abort', () => { void dispatcher.stop(); }, { once: true });
+if (stopping.aborted) void dispatcher.stop();
 transportLifecycle.defer(()=>dispatcher.stop(),{critical:true});
 const activeSmsRateRuntime = new SmsRateRuntime({
   readRate: () => smsQueue.rate(),
-  queuedDevices: () => smsQueue.queuedDevices(),
+  queuedDevices: after => smsQueue.queuedDevices(after),
   setRate: rate => dispatcher.setRate(rate),
-  flush: (id, rate) => dispatcher.flush(id, rate),
+  flush: (id, rate) => stopping.aborted ? Promise.resolve() : dispatcher.flush(id, rate),
   report: error => app.log.error({ err: error }, 'SMS scheduling failed'),
 });
 smsRateRuntime = activeSmsRateRuntime;
+stopping.addEventListener('abort', () => { void activeSmsRateRuntime.stop(); }, { once: true });
+if (stopping.aborted) void activeSmsRateRuntime.stop();
 transportLifecycle.defer(()=>activeSmsRateRuntime.stop(),{critical:true});
 flushSmsTasks();
 const incomingOutbox=new IncomingSmsOutbox(pool,(type,data)=>hub.publish(type,data));
@@ -280,7 +284,11 @@ transportLifecycle.defer(()=>rejectWorker.stop(),{critical:true});
 const sessions=new DeviceSessions({protocolAlerts:new DeviceProtocolAlerts(pool, assertAdmission, publishOperationalAlert),authenticate:t=>binding.authenticate(t),heartbeatSec:30,locale:'zh-CN',currentConfig:async()=>{const s=await settings.get();return {heartbeatSec:s.heartbeatSec,locale:s.botLocale};},commands,heartbeat:async(id,payload,ts)=>{const result=await status.heartbeat(id,payload as Record<string,unknown>,ts);if(!result.accepted || stopping.aborted)return;smsRateRuntime?.request(id);await notifyDevice(id);},onEvent:(id,event,context)=>stopping.aborted ? Promise.resolve(false) : makeDeviceEventProducer({handle:async(device,e)=>{const outcome=await events.handle(device,e,context);if (outcome === 'inserted' && (e.type === 'call.incoming' || e.type === 'call.state')) {
     void hub.publishLatest('call.updated', () => calls.summaryForEvent(e.id)).catch(() => {});
   }
-  if (e.type === 'sms.received' && (outcome === 'quarantined' || outcome === 'rejected')) void notifyAlert(e.id).catch(() => {});return outcome;},incomingSms:flushIncoming,taskUpdated:async()=>flushSmsTasks()})(id,event as DeviceEventEnvelope)});
+  if (e.type === 'sms.received' && (outcome === 'quarantined' || outcome === 'rejected')) void notifyAlert(e.id).catch(() => {});return outcome;},incomingSms:flushIncoming,taskUpdated:async()=>flushSmsTasks(),
+  snapshotCommitted: deviceId => {
+    if (!stopping.aborted && context.isCurrent()) smsRateRuntime?.request(deviceId);
+  },
+})(id,event as DeviceEventEnvelope)});
 const adminSessions=new AdminSessions(t=>auth.authenticate(t));
 const stopSessions=async()=>{
   const results=await Promise.allSettled([Promise.resolve().then(()=>sessions.stop()),Promise.resolve().then(()=>adminSessions.stop())]);

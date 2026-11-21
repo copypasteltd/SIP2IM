@@ -4,11 +4,18 @@
 
 ## 简体中文
 
+### 2026-11-21 · 短信跨设备调度
+
+- Core 每次发现最多 32 台有排队任务的设备，按设备 ID 续扫和回环；设备派发最多并发 4 轮，重复唤醒合并。关停取消尚未开始的普通唤醒，已开始的发送和结果对账仍排空。[扫描](core/src/sms/queue-repo.ts) · [派发](core/src/sms/dispatch.ts)
+- 有其他设备等待时，慢 ACK 结束本次处理后会让位。下一轮继续轮转 SIM，保持各 SIM 自身 FIFO。结果不确定时仍不重发，持久化重试只核对原尝试。[调度回归](core/test/sms-device-admission.test.ts)
+- 当前连接的新 SIM 快照提交后可以提前唤醒重新检查，心跳和周期扫描仍为兜底。快照不授予发送资格。[事件投影](core/src/devices/event-producer.ts)
+- 本轮未改动 Web、演示和已发布的合成素材；复验了现有流程。[本轮验证](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 告警分页与确认审计
 
 - 告警页分批读取，支持上一页、下一页和返回最新；自动刷新只请求当前页。游标保留数据库微秒时间并绑定筛选状态。旧客户端未传分页参数时行为不变。[告警接口](core/src/http/operations.ts)
 - 确认仅修改开放告警。写入前复核管理员会话，状态和审计一并提交；响应不确定时读回，不自动补发确认。[告警仓库](core/src/alerts/admin-repo.ts)
-- 合成演示增加告警历史第二页，回到最新后确认渠道告警并核对操作日志。[历史截图](docs/media/alerts-history.png) · [本轮验证](docs/VERIFICATION.md)
+- 合成演示增加告警历史第二页，回到最新后确认渠道告警并核对操作日志。[历史截图](docs/media/alerts-history.png) · [本轮验证](https://github.com/copypasteltd/SIP2IM/blob/96d6c026e9366316bdcf7ac289de1c8f91a61784/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 设备配置对账与权限证据
 
@@ -42,11 +49,18 @@
 
 ## English
 
+### 2026-11-21 · SMS scheduling across devices
+
+- Core discovers up to 32 devices with queued work per scan, advancing and wrapping by device ID. It allows four active device turns and coalesces repeated wakes. Shutdown cancels unstarted ordinary wakes and drains admitted sends and result writes. [Discovery](core/src/sms/queue-repo.ts) · [Dispatcher](core/src/sms/dispatch.ts)
+- After a slow ACK settles, another waiting device can take the slot. A later turn resumes SIM rotation without changing each SIM's FIFO. An uncertain action is never resent; a persistence retry reconciles only the original attempt. [Scheduling regressions](core/test/sms-device-admission.test.ts)
+- A newly committed SIM snapshot on the current attachment can wake an eligibility recheck. Heartbeats and periodic scans remain fallbacks. A snapshot does not authorize a send. [Event producer](core/src/devices/event-producer.ts)
+- Web, the demo, and the published synthetic media are unchanged; the existing workflow was rechecked. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Alert history and acknowledgement audit
 
 - Alerts support Previous, Next and Latest. Polling fetches only the displayed page. The cursor preserves database microseconds and is bound to the state filter. Existing unpaged requests behave as before. [Alert API](core/src/http/operations.ts)
 - Acknowledgement only changes open alerts. Core rechecks the administrator session and commits the transition and audit together. An uncertain response requires readback, not an automatic retry. [Alert repository](core/src/alerts/admin-repo.ts)
-- The synthetic walkthrough opens the second history page, then returns to the latest page to acknowledge a channel alert and confirm its audit entry. [History screenshot](docs/media/alerts-history.png) · [Verification](docs/VERIFICATION.md)
+- The synthetic walkthrough opens the second history page, then returns to the latest page to acknowledge a channel alert and confirm its audit entry. [History screenshot](docs/media/alerts-history.png) · [Verification](https://github.com/copypasteltd/SIP2IM/blob/96d6c026e9366316bdcf7ac289de1c8f91a61784/docs/VERIFICATION.md)
 
 ### 2026-11-21 · Device configuration and permission evidence
 

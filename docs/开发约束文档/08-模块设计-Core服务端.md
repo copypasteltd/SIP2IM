@@ -90,6 +90,7 @@ http → 各模块 routes
 
 - 设备离线时任务保持 queued，设备上线后按创建顺序下发；queued 超过 24 小时转 failed（errorCode = DEVICE_OFFLINE）。
 - 限速 rate.ts：按 SIM 令牌桶，速率 sms_rate_per_min（null 不限）；**是唯一限速点**；短信命令（FR-SMS-08）同样受此限速，外呼不受任何限速（C-11）。
+- 跨设备积压每轮最多发现 32 台，按 ID 续扫。派发最多同时处理 4 台设备，每张 SIM 继续使用独立 FIFO 与限速。有等待设备时，耗时轮次在完成当前步骤后让位，下一轮继续轮转 SIM。提交的新快照只请求重查，不视为发送资格。
 
 ### 3.5 media
 
