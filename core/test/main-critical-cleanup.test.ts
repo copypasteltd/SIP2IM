@@ -27,12 +27,21 @@ function fixture() {
   const hub={stop:vi.fn()}, settings={drain:vi.fn()}, browserCalls={stop:vi.fn()};
   const dispatcher={stop:vi.fn()}, incomingOutbox={stop:vi.fn()}, maintenanceInvalidation={stop:vi.fn()}, adapterRuntime={close:vi.fn()};
   const rejectWorker={stop:vi.fn()}, stopSessions=vi.fn(), media={close:vi.fn(),drain:vi.fn()};
-  const wsCloser={start:vi.fn(),wait:vi.fn()}, presence={stop:vi.fn()}, activeSmsRateRuntime={stop:vi.fn()};
-  return {pool,ownership,hub,settings,browserCalls,dispatcher,incomingOutbox,maintenanceInvalidation,adapterRuntime,rejectWorker,stopSessions,media,wsCloser,presence,activeSmsRateRuntime};
+  const wsCloser={start:vi.fn(),wait:vi.fn()}, presence={stop:vi.fn()}, activeSmsRateRuntime={stop:vi.fn()}, deviceConfigSync={stop:vi.fn()};
+  return {pool,ownership,hub,settings,browserCalls,dispatcher,incomingOutbox,maintenanceInvalidation,adapterRuntime,rejectWorker,stopSessions,media,wsCloser,presence,activeSmsRateRuntime,deviceConfigSync};
 }
 const deferred=()=>{let resolve!:()=>void; const promise=new Promise<void>(r=>{resolve=r;}); return {promise,resolve};};
 
 describe('main lifecycle wiring',()=>{
+  it('stops the configuration reconciler before releasing the pool and ownership',async()=>{
+    const f=fixture(), gate=deferred(); f.deviceConfigSync.stop.mockReturnValue(gate.promise as never);
+    const lifecycle=await wire(f); const closing=lifecycle.close();
+    await vi.waitFor(()=>expect(f.deviceConfigSync.stop).toHaveBeenCalledOnce());
+    expect(f.presence.stop).toHaveBeenCalledOnce();
+    expect(f.pool.end).not.toHaveBeenCalled(); expect(f.ownership.close).not.toHaveBeenCalled();
+    gate.resolve(); await closing;
+    expect(f.pool.end).toHaveBeenCalledOnce(); expect(f.ownership.close).toHaveBeenCalledOnce();
+  });
   it('waits for media authentication drain before ending the pool',async()=>{
     const f=fixture(), gate=deferred(); f.media.drain.mockReturnValue(gate.promise as never);
     const lifecycle=await wire(f); const closing=lifecycle.close();

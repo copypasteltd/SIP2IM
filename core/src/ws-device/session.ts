@@ -258,6 +258,7 @@ export class DeviceSessions {
                   socket.send(JSON.stringify({v:1,type:'hello.ok',id:'cmd_'+ulid(),ts:Date.now(),payload:{deviceId:device.id,serverTime:Date.now(),config}}));
                   const confirmed = () => isCurrent() && socketIsOpen(socket);
                   if (wasOpen && confirmed()) {
+                    this.deps.commands?.configReady(device.id, socket);
                     // Compare actual confirmation with rejection, not order of hello arrival or auth.
                     if (this.mismatchChecks > 0) this.latestCompatible.set(device.id, ++this.protocolSequence);
                     this.queueProtocolObservation('compatible', device.id, hello.token, confirmed);

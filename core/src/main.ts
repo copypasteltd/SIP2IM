@@ -42,6 +42,7 @@ import { SmsMaintenanceInvalidation } from './sms/maintenance-invalidation.js';
 import { SmsHistory } from './sms/history.js';
 import { SmsHistoryOptions } from './sms/history-options.js';
 import { SettingsRepository } from './settings/repo.js';
+import { DeviceConfigSync } from './settings/device-config.js';
 import { SettingsService } from './settings/service.js';
 import { ChannelRepository } from './channels/repo.js';
 import { AdapterRuntime } from './channels/adapter-runtime.js';
@@ -166,16 +167,23 @@ const notifyAlert = (id: string) => hub.publishLatest('alert.raised', async () =
   return result.rows[0] ?? null;
 });
 const commands=new DeviceCommands(assertAdmission);
+const deviceConfigSync = new DeviceConfigSync(async () => {
+  const { heartbeatSec, botLocale } = await settingsRepo.get();
+  return { heartbeatSec, locale: botLocale };
+}, () => commands.configAttachments(), assertAdmission, () => app.log.warn('Device configuration readback failed'));
+transportLifecycle.defer(() => deviceConfigSync.stop(), { critical: true });
 const settings = new SettingsService({
   get: () => settingsRepo.get(),
   update: async (patch, expected) => {
     try {
       const result = await settingsRepo.update(patch, expected);
       if (result.before.smsRatePerMin !== result.after.smsRatePerMin) smsRateRuntime?.changed(result.after.smsRatePerMin);
+      if (result.before.heartbeatSec !== result.after.heartbeatSec || result.before.botLocale !== result.after.botLocale) deviceConfigSync.invalidate();
       return result;
     } catch (error) {
+      const outcome = transactionOutcome(error);
+      if (outcome && (Object.hasOwn(patch, 'heartbeatSec') || Object.hasOwn(patch, 'botLocale'))) deviceConfigSync.invalidate();
       if (Object.hasOwn(patch, 'smsRatePerMin')) {
-        const outcome = transactionOutcome(error);
         if (outcome === 'unknown') smsRateRuntime?.changed(undefined);
         else if (outcome === 'committed') {
           smsRateRuntime?.invalidate();
@@ -187,7 +195,6 @@ const settings = new SettingsService({
   },
 }, {
   publish: value => hub.publish('settings.updated', value),
-  updateDevices: config => commands.broadcast('config.update', config),
 }, effect => app.log.error({ effect }, 'Settings effect failed'));
 lifecycle.defer(() => settings.drain(), { critical: true });
 registerAudit(app,item=>new AuditRepository(pool).record(item),()=>{process.stderr.write('audit write failed\n');});registerSettingsPut(app,settings,t=>auth.authenticate(t));registerChannelRoutes(app,settings,channels,t=>auth.authenticate(t));registerOperations(app,pool,t=>auth.authenticate(t));registerDashboardRoute(app,new DashboardService(new DashboardRepository(pool)),t=>auth.authenticate(t));const smsRepo=new SmsRepository(pool);
@@ -337,6 +344,7 @@ const presence=new TrackedInterval(10000,[
   async()=>{if (!stopping.aborted && await smsQueue.failRetired()) flushSmsTasks();},
   ()=>stopping.aborted ? undefined : activeSmsRateRuntime.refresh(),
   ()=>stopping.aborted ? undefined : maintenanceInvalidation.flush(),
+  ()=>stopping.aborted ? undefined : deviceConfigSync.refresh(),
   async () => {
     if (stopping.aborted) return;
     try { await callFailureAlerts.sweep(assertAdmission, publishOperationalAlert); }

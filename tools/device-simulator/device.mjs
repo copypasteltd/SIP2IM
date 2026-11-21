@@ -14,6 +14,41 @@ export function snapshot(count = 1, now = Date.now()) {
   const probes = Object.fromEntries(['smsSend','smsReceive','dial','answer','hangup','dtmf','downlink','uplink','earlyMedia'].map(k => [k,{ result:'untested', probedAt:now, detail:null }]));
   return { sims: Array.from({length:count}, (_,slot) => ({slot,subId:slot+1,carrier:null,state:'ready',reportedNumber:null,mcc:null,mnc:null})), capabilityLevel:'L1', probes, permissions:[] };
 }
+const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isTimestamp = value => Number.isInteger(value) && value >= 0 && value <= 8_640_000_000_000_000;
+const commandId = /^cmd_[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+const deviceIdPattern = /^dev_[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
+// Do not let Node coerce an out-of-range interval to 1 ms.
+const maxHeartbeatSec = Math.floor(2_147_483_647 / 1_000);
+
+function isV1Command(message) {
+  return message?.v === 1 && typeof message.id === 'string' && commandId.test(message.id) && isTimestamp(message.ts);
+}
+
+function configValues(value, complete = false) {
+  if (!isObject(value) || Object.keys(value).some(key => key !== 'heartbeatSec' && key !== 'locale')) return null;
+  const patch = {};
+  if (complete || Object.hasOwn(value, 'heartbeatSec')) {
+    const { heartbeatSec } = value;
+    if (!Number.isInteger(heartbeatSec) || heartbeatSec < 1 || heartbeatSec > maxHeartbeatSec) return null;
+    patch.heartbeatSec = heartbeatSec;
+  }
+  if (complete || Object.hasOwn(value, 'locale')) {
+    if (typeof value.locale !== 'string') return null;
+    patch.locale = value.locale;
+  }
+  // The wire accepts an empty patch, but there is nothing for this simulator to apply.
+  return Object.keys(patch).length ? patch : null;
+}
+
+export function helloConfig(message, boundDeviceId) {
+  const p = message?.payload;
+  if (!isV1Command(message) || message.type !== 'hello.ok' || !isObject(p) ||
+      typeof p.deviceId !== 'string' || !deviceIdPattern.test(p.deviceId) ||
+      (boundDeviceId !== undefined && p.deviceId !== boundDeviceId) || !isTimestamp(p.serverTime)) return null;
+  return configValues(p.config, true);
+}
+
 export function createDevice({ token, simCount = 1, now = Date.now }) {
   if (typeof token !== 'string' || !token) throw new TypeError('token is required');
   const cache = new Map(); let call = null;
@@ -21,7 +56,24 @@ export function createDevice({ token, simCount = 1, now = Date.now }) {
   const hello = () => emit('hello',{token,apkVersion:'0.1.0',apkCode:1,protocol:1,manufacturer:'Simulator',model:'Virtual',apiLevel:34,locale:'en'});
   const heartbeat = () => emit('heartbeat',{battery:100,charging:true,network:'wifi',signalDbm:null,shizuku:'unknown',paused:false});
   const state = (callId,state,cause=null) => emit('call.state',{callId,state,cause});
-  function command(message, startMedia = () => {}) {
+  function configCommand(message, config) {
+    if (!isV1Command(message)) throw new TypeError('invalid config command envelope');
+    const receipt = error => emit('ack', { refId: message.id, ok: error === null, error });
+    const patch = configValues(message.payload);
+    if (!patch) return [receipt('BAD_MESSAGE')];
+    if (!config) return [receipt('CAPABILITY_UNSUPPORTED')];
+    const signature = JSON.stringify(patch);
+    const previous = config.receipts.get(message.id);
+    if (previous) return [previous.signature === signature ? previous.ack : receipt('CONFLICT')];
+
+    const ack = receipt(config.apply(patch) === true ? null : 'INTERNAL');
+    config.receipts.set(message.id, { signature, ack });
+    if (config.receipts.size > 500) config.receipts.delete(config.receipts.keys().next().value);
+    return [ack];
+  }
+
+  function command(message, startMedia = () => {}, config) {
+    if (message?.type === 'config.update') return configCommand(message, config);
     if (!message || message.v !== 1 || typeof message.id !== 'string' || !message.id.startsWith('cmd_') || !message.payload || typeof message.payload !== 'object') throw new TypeError('invalid command envelope');
     const p = message.payload;
     const versionedCall = typeof message.type === 'string' && message.type.startsWith('call.') && 'generation' in p;
@@ -44,8 +96,7 @@ export function createDevice({ token, simCount = 1, now = Date.now }) {
     } else if (message.type === 'call.reject' || message.type === 'call.hangup') {
       if (!call || call.id !== p.callId || (message.type === 'call.reject' && call.state !== 'ringing')) error=message.type === 'call.reject' ? 'CALL_NOT_RINGING' : 'CALL_NOT_FOUND';
       else { events.push(state(call.id,'disconnected',message.type === 'call.reject' ? 'rejected' : 'local_hangup')); call=null; }
-    } else if (message.type === 'config.update') { /* transport owns heartbeat scheduling */ }
-    else error='CAPABILITY_UNSUPPORTED';
+    } else error='CAPABILITY_UNSUPPORTED';
     const ack=emit('ack',{refId:message.id,ok:error===null,error});
     cache.set(cacheKey,ack); if (cache.size > 500) cache.delete(cache.keys().next().value);
     return [ack,...events];

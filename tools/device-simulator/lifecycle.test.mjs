@@ -1,2 +1,27 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createSession} from './runner.mjs';
-test('only accepted first command opens media and hangup closes it once',()=>{let opens=0,closes=0;const sent=[];const s=createSession({token:'x',send:x=>sent.push(JSON.parse(x)),openMedia:()=>{opens++;return {close:()=>closes++}}});const send=(id,type,payload)=>s.receive(JSON.stringify({v:1,id,type,payload}));send('cmd_bad','call.dial',{});assert.equal(opens,0);const dial={callId:'c',media:{path:'x'}};send('cmd_d','call.dial',dial);send('cmd_d','call.dial',dial);assert.equal(opens,1);send('cmd_busy','call.dial',{callId:'d',media:{}});assert.equal(opens,1);send('cmd_h','call.hangup',{callId:'c'});send('cmd_h','call.hangup',{callId:'c'});assert.equal(closes,1);assert.ok(!sent.some(x=>x.type==='call.state'&&x.payload.state==='active'));});
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createSession } from './runner.mjs';
+import { command, fakeClock, helloOk } from './control.fixture.mjs';
+
+test('only accepted first command opens media and hangup closes it once', () => {
+  let opens = 0, closes = 0;
+  const sent = [];
+  const session = createSession({ token: 'fixture', send: raw => sent.push(JSON.parse(raw)), ...fakeClock(),
+    openMedia: () => { opens++; return { close: () => closes++ }; },
+  });
+  const socket = session.start();
+  socket.receive(JSON.stringify(helloOk()));
+  const receive = (n, type, payload) => socket.receive(JSON.stringify(command(n, type, payload)));
+  receive(1, 'call.dial', {});
+  assert.equal(opens, 0);
+  const dial = { callId: 'c', media: { path: 'fixture' } };
+  receive(2, 'call.dial', dial);
+  receive(2, 'call.dial', dial);
+  receive(3, 'call.dial', { callId: 'd', media: {} });
+  assert.equal(opens, 1);
+  receive(4, 'call.hangup', { callId: 'c' });
+  receive(4, 'call.hangup', { callId: 'c' });
+  assert.equal(closes, 1);
+  assert.ok(!sent.some(x => x.type === 'call.state' && x.payload.state === 'active'));
+  socket.close();
+});

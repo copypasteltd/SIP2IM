@@ -3,6 +3,7 @@ import test from 'node:test';
 import { parseDeviceMessage } from '../../packages/protocol/dist/device.js';
 import { createBrowserCallDriver } from './browser-call-driver.fixture.mjs';
 import { createSession } from './runner.mjs';
+import { fakeClock } from './control.fixture.mjs';
 
 const now = () => 1700000000123;
 const id = (prefix, value = 1) => prefix + '_' + String(value).padStart(26, '0');
@@ -24,7 +25,7 @@ function fixture({ openMedia } = {}) {
     opened.push(leg);
     return openMedia ? openMedia(leg) : { ready: true, close: () => { closed++; } };
   } });
-  const session = createSession({ token: 'fixture', now, createCallDriver });
+  const session = createSession({ token: 'fixture', deviceId: id('dev'), ...fakeClock(now()), now, createCallDriver });
   function connect(write = () => {}) {
     const frames = [];
     const connection = session.start(raw => {

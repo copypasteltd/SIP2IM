@@ -6,7 +6,7 @@ export interface SettingsStore {
 }
 export interface SettingsEffects {
   publish(settings: Settings): Promise<void> | void;
-  updateDevices(config: { heartbeatSec: number; locale: string }): Promise<void> | void;
+  updateDevices?(config: { heartbeatSec: number; locale: string }): Promise<void> | void;
 }
 
 /** Serializes local reads and mutations, and orders best-effort effects. */
@@ -52,7 +52,7 @@ export class SettingsService {
         } catch {
           this.reportFailure('publish');
         }
-        if (before.heartbeatSec !== after.heartbeatSec || before.botLocale !== after.botLocale) {
+        if (this.effects.updateDevices && (before.heartbeatSec !== after.heartbeatSec || before.botLocale !== after.botLocale)) {
           try {
             await this.effects.updateDevices({ heartbeatSec: after.heartbeatSec, locale: after.botLocale });
           } catch {

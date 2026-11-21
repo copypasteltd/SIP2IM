@@ -212,7 +212,7 @@ notify.incoming、notify.missed、notify.busy_rejected、notify.sms_forward、no
 
 ### 3.13 settings
 
-PUT /api/settings 保存后：更新缓存 → 推送 settings.updated → 若 heartbeat_sec 或 bot_locale 变化，向所有在线设备发 config.update。
+设置写入成功后推送 `settings.updated`。`heartbeat_sec` 或 `bot_locale` 变化会立即唤醒配置对账，定时轮转读取已提交值并向完成握手的当前连接发送 `config.update`。提交不明确时只读回数据库状态，不转发原请求。当前连接对本次命令的正向 ACK 才能结束该配置的重试。
 
 ## 4. 日志脱敏
 

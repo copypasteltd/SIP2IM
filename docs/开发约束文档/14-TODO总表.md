@@ -78,7 +78,7 @@
 | C-DEV-03 | 心跳、在线判定、device_status TTL、online/offline 事件 | C-DEV-02 | FR-DEV-03 | K08 §3.2 | TC-DEV-04（假时钟） | TODO |
 | C-DEV-04 | 设备 CRUD：列表、详情 DTO、改名、启停、通话开关、默认 SIM、解绑吊销、probe 触发 | C-DEV-02 | FR-DEV-02/06/07 | K05 §6.2–6.3 | TC-DEV-03、TC-DEV-08 | TODO |
 | C-DEV-05 | canCommand / canCall 判定；暂停与禁用处理（命令前拦截、来电直接 reject） | C-DEV-03 | FR-DEV-09 | K08 §3.2、K05 §3.4 | TC-DEV-09（假设备） | TODO |
-| C-SET-02 | 设置变更后向在线设备下发 config.update | C-SET-01, C-DEV-02 | — | K08 §3.13 | 改 heartbeat_sec 后设备收到命令 | TODO |
+| C-SET-02 | 设置变更后向在线设备下发 config.update | C-SET-01, C-DEV-02 | — | K08 §3.13 | Core/模拟器回归覆盖变更、丢 ACK 和重连；待 Android 真机验证 | REVIEW |
 | C-SIM-01 | snapshot 同步 SIM、换卡 retired 与 needs_review、号码登记与复核接口、matchByNumber | C-DEV-02, C-UTIL-02 | FR-DEV-05 | K08 §3.3 | TC-DEV-06；匹配 0/1/多 | TODO |
 | C-SMS-01 | 入站短信：以信封 id 去重入库、ack、sms.new | C-SIM-01 | FR-SMS-01/02 | K08 §3.4 | TC-SMS-01/03 | TODO |
 | C-SMS-02 | 出站任务状态机、sms.send、ack 分支、unknown 不重发、离线排队、Idempotency-Key 必填 | C-SMS-01, C-DEV-05 | FR-SMS-03/04 | K08 §3.4 | TC-SMS-04/05 | TODO |
@@ -223,7 +223,7 @@
 | DEC | 1 | 0 | 1 | 0 | 0 | 0 |
 | ENV | 11 | 3 | 0 | 0 | 0 | 0 |
 | P | 7 | 0 | 0 | 0 | 0 | 0 |
-| C | 45 | 0 | 0 | 1 | 0 | 0 |
+| C | 45 | 0 | 0 | 1 | 1 | 0 |
 | A | 18 | 0 | 0 | 0 | 0 | 0 |
 | W | 16 | 0 | 0 | 0 | 0 | 0 |
 | T | 7 | 0 | 0 | 0 | 0 | 0 |
@@ -231,4 +231,4 @@
 | TL | 4 | 0 | 0 | 0 | 0 | 0 |
 | D | 7 | 0 | 0 | 0 | 0 | 0 |
 | G | 9 | 0 | 0 | 0 | 0 | 0 |
-| 合计 | 132 | 3 | 1 | 1 | 0 | 0 |
+| 合计 | 132 | 3 | 1 | 1 | 1 | 0 |

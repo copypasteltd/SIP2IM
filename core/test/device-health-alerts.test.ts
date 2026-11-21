@@ -52,6 +52,35 @@ describe('evidence for device health alerts', () => {
     expect(beliefs(phone(),[],[sim({state:'ready'})]).sim_not_ready).toBe('clear');
   });
 
+  it('uses an independently denied permission even when the other is ambiguous', () => {
+    const valueWithDeniedReceive = [{name:'SEND_SMS',granted:true},{name:'android.permission.SEND_SMS',granted:false},
+      {name:'RECEIVE_SMS',granted:false}];
+    const valueWithDeniedSend = [{name:'android.permission.SEND_SMS',granted:false},{name:'SEND_SMS',granted:false},
+      {name:'RECEIVE_SMS',granted:true},{name:'android.permission.RECEIVE_SMS'}];
+    for (const value of [valueWithDeniedReceive, valueWithDeniedSend]) {
+      expect(beliefs(phone(),[observation('permissions',value)]).sms_permission_missing).toBe('bad');
+    }
+    expect(beliefs(phone(),[observation('permissions',[{name:'SEND_SMS',granted:false}])]).sms_permission_missing).toBe('bad');
+    expect(beliefs(phone(),[observation('permissions',
+      [{name:'SEND_SMS',granted:false},{name:'android.permission.SEND_SMS',granted:'false'}])]).sms_permission_missing).toBe('unknown');
+  });
+
+  it('keeps permission alert evidence unknown outside valid timestamp and TTL boundaries', () => {
+    const denied = permissions(false,true);
+    const assess = (overrides: Partial<HealthStatus>, at = base) =>
+      beliefs(phone({last_seen_at:new Date(at)}),[{...denied,...overrides}],[],at).sms_permission_missing;
+    expect(assess({received_at:new Date(base+1)})).toBe('unknown');
+    expect(assess({observed_at:new Date(NaN)})).toBe('unknown');
+    expect(assess({received_at:new Date(NaN)})).toBe('unknown');
+    for (const ttl_sec of [0,-1,0.5,NaN,Infinity,Number.MAX_SAFE_INTEGER+1]) {
+      expect(assess({ttl_sec})).toBe('unknown');
+    }
+    expect(assess({ttl_sec:1},base+1_000)).toBe('bad');
+    expect(assess({ttl_sec:1},base+1_001)).toBe('unknown');
+    expect(assess({ttl_sec:172_800},base+86_400_000)).toBe('bad');
+    expect(assess({ttl_sec:172_800},base+86_400_001)).toBe('unknown');
+  });
+
   it('clears alert monitoring on explicit decommissioning but not on unknown data', () => {
     const status = [observation('shizuku','stopped'), permissions(false,true)];
     expect(beliefs(phone({enabled:false}),status,[sim()])).toEqual({device_offline:'clear',

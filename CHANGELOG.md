@@ -4,11 +4,17 @@
 
 ## 简体中文
 
+### 2026-11-21 · 设备配置对账与权限证据
+
+- Core 按数据库已提交设置对账设备的心跳周期和语言。丢失 ACK 后只重试当前设置；旧连接的回执不结算新连接。限量轮转和关停排空不影响短信与通话的禁止自动重试规则。[配置任务](core/src/settings/device-config.ts)
+- 仪表盘和短信权限告警采用同一套时效与判定规则。冲突观测不计入短信就绪。软件模拟器按握手和配置命令更新当前连接的心跳周期。[权限证据](core/src/devices/sms-permissions.ts) · [模拟器](tools/device-simulator/README.md)
+- 本轮未改变录屏所展示的操作。保留此前合成实录，并复验演示接口。[本轮验证](docs/VERIFICATION.md)
+
 ### 2026-11-21 · 运维告警闭环
 
 - 补齐渠道掉线、通话失败或结果未知、设备协议不兼容及 Shizuku 自启失败告警。告警来自已有的状态证据；已确认的记录不会在同一故障内反复打开。[告警规则](docs/IMPLEMENTATION.md#设备健康与运维告警)
 - 通话告警单独扫描，不阻塞命令发送或 ACK。协议告警核验设备及原凭据，不改变连接准入。[通话投影](core/src/calls/failure-alerts.ts) · [协议观察](core/src/devices/protocol-alerts.ts)
-- Web 三语显示告警原因与状态。合成演示录制渠道告警确认，并保留独立的设备离线告警。[确认截图](docs/media/alerts.png) · [本轮验证](docs/VERIFICATION.md)
+- Web 三语显示告警原因与状态。合成演示录制渠道告警确认，并保留独立的设备离线告警。[确认截图](docs/media/alerts.png) · [本轮验证](https://github.com/copypasteltd/SIP2IM/blob/291548b6af0f27229518b59a12472145928ff972/docs/VERIFICATION.md)
 
 ### 2026-11-21 · 短信回执与设备告警
 
@@ -30,11 +36,17 @@
 
 ## English
 
+### 2026-11-21 · Device configuration and permission evidence
+
+- Core reconciles the heartbeat interval and locale against committed settings. After a missing ACK it retries only the current configuration; previous connections cannot settle a new attachment. Bounded rotation and shutdown drain leave the no-automatic-retry policy for SMS and calls unchanged. [Configuration reconciler](core/src/settings/device-config.ts)
+- Dashboard and SMS permission alerts now use the same evidence and freshness rules. Contradictory grants no longer count as ready. The simulator applies hello and configuration changes to its current heartbeat schedule. [Permission evidence](core/src/devices/sms-permissions.ts) · [Simulator](tools/device-simulator/README.md)
+- The demonstrated Web flows were unchanged. The existing synthetic recording remains applicable and its fixture was retested. [Verification](docs/VERIFICATION.md)
+
 ### 2026-11-21 · Operational alert lifecycle
 
 - Added alerts for channel loss, failed or uncertain calls, incompatible device protocols, and repeated Shizuku autostart failure. Alerts use existing state evidence, and acknowledgement suppresses duplicates within the same incident. [Alert rules](docs/IMPLEMENTATION.md#device-health-and-operational-alerts)
 - Call alert scanning runs separately from command sends and ACKs. Protocol diagnostics verify the device and its original credential without changing connection admission. [Call projection](core/src/calls/failure-alerts.ts) · [Protocol observations](core/src/devices/protocol-alerts.ts)
-- Web shows alert types and states in all three languages. The synthetic walkthrough acknowledges a channel warning while leaving the independent device warning open. [Acknowledgement screenshot](docs/media/alerts.png) · [Verification](docs/VERIFICATION.md)
+- Web shows alert types and states in all three languages. The synthetic walkthrough acknowledges a channel warning while leaving the independent device warning open. [Acknowledgement screenshot](docs/media/alerts.png) · [Verification](https://github.com/copypasteltd/SIP2IM/blob/291548b6af0f27229518b59a12472145928ff972/docs/VERIFICATION.md)
 
 ### 2026-11-21 · SMS results and device health alerts
 

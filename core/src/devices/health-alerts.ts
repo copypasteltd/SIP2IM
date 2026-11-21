@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { ulid } from 'ulid';
 import { transaction } from '../db/pool.js';
+import { assessSmsPermissions } from './sms-permissions.js';
 
 const PAGE_SIZE = 24;
 const PAGES_PER_TICK = 4;
@@ -8,7 +9,6 @@ const WARNING_DELAY_MS = 60_000;
 const MAX_SAMPLE_GAP_MS = 30_000;
 const SIM_FRESH_MS = 2 * 60 * 60 * 1000;
 const HEARTBEAT_FRESH_MS = 90_000;
-const PERMISSIONS_FRESH_MS = 24 * 60 * 60 * 1000;
 
 export type DeviceHealthAlert = 'device_offline' | 'shizuku_stopped' | 'sim_not_ready' | 'sms_permission_missing';
 type Belief = 'bad' | 'clear' | 'unknown';
@@ -58,20 +58,6 @@ function validObservation(row: HealthStatus | undefined, now: number, maxAge: nu
   return at !== null && received !== null && at <= received && now - at <= Math.min(maxAge, row.ttl_sec * 1000);
 }
 
-function permissionBelief(value: unknown): Belief {
-  if (!Array.isArray(value)) return 'unknown';
-  const results = ['SEND_SMS', 'RECEIVE_SMS'].map(name => {
-    const observations = value.filter((item: unknown) => !!item && typeof item === 'object' &&
-      'name' in item && (item.name === name || item.name === 'android.permission.' + name));
-    // An omitted or contradictory entry is not evidence of a missing permission.
-    if (!observations.length) return undefined;
-    const values = observations.map(item => 'granted' in item ? item.granted : undefined);
-    const granted: unknown = values[0];
-    return typeof granted === 'boolean' && values.every(value => value === granted) ? granted : undefined;
-  });
-  return results.includes(false) ? 'bad' : results.every(value => value === true) ? 'clear' : 'unknown';
-}
-
 /** Read only existing persisted observations: an unobserved value can neither start nor clear an alert. */
 export function assessDeviceHealth(device: HealthDevice, statuses: ReadonlyArray<HealthStatus>,
   sims: ReadonlyArray<HealthSim>, now: number, offlineAfterSec: number): Finding[] {
@@ -84,7 +70,10 @@ export function assessDeviceHealth(device: HealthDevice, statuses: ReadonlyArray
   const shizuku = statuses.find(row => row.device_id === device.id && row.field === 'shizuku');
   const permissions = statuses.find(row => row.device_id === device.id && row.field === 'permissions');
   const freshShizuku = reachable && validObservation(shizuku, now, HEARTBEAT_FRESH_MS) ? shizuku : undefined;
-  const freshPermissions = reachable && validObservation(permissions, now, PERMISSIONS_FRESH_MS) ? permissions : undefined;
+  const smsPermissions = reachable && permissions ? assessSmsPermissions({
+    value: permissions.value, observedAt: permissions.observed_at,
+    receivedAt: permissions.received_at, ttlSec: permissions.ttl_sec,
+  }, now) : 'unknown';
   const shizukuBelief: Belief = !managed || !device.call_enabled ? 'clear' :
     freshShizuku?.value === 'running' ? 'clear' :
     freshShizuku?.value === 'stopped' || freshShizuku?.value === 'not_installed' || freshShizuku?.value === 'unsupported'
@@ -97,7 +86,8 @@ export function assessDeviceHealth(device: HealthDevice, statuses: ReadonlyArray
     { type: 'shizuku_stopped', subject_type: 'device', subject_id: device.id, delay: true,
       belief: shizukuBelief, evidence_at: freshShizuku?.observed_at ?? null },
     { type: 'sms_permission_missing', subject_type: 'device', subject_id: device.id, delay: false,
-      belief: !managed ? 'clear' : permissionBelief(freshPermissions?.value), evidence_at: freshPermissions?.observed_at ?? null },
+      belief: !managed || smsPermissions === 'granted' ? 'clear' : smsPermissions === 'missing' ? 'bad' : 'unknown',
+      evidence_at: smsPermissions === 'unknown' ? null : permissions?.observed_at ?? null },
     ...sims.filter(sim => sim.device_id === device.id).map((sim): Finding => {
       const at = observedAt(sim.last_seen_at, now);
       const fresh = reachable && at !== null && now - at <= SIM_FRESH_MS;

@@ -1,3 +1,4 @@
+import { assessSmsPermissions } from '../devices/sms-permissions.js';
 import {canCall,canCommand,type Device,type Observation} from '../devices/status.js';
 import type {DashboardSnapshot,DashboardStatus} from './repo.js';
 
@@ -39,11 +40,8 @@ export class DashboardService {
       if(d.capabilityLevel && Object.hasOwn(levels,d.capabilityLevel)) levels[d.capabilityLevel as keyof typeof levels]++;
       if(d.inCall)capability.inCall++;
       const device:Device={online:d.online,enabled:d.enabled,paused:d.paused,callEnabled:d.callEnabled,capabilityLevel:d.capabilityLevel??'',network:observation(status(d.id,'network')),shizuku:observation(status(d.id,'shizuku')),downlink:observation(status(d.id,'probe.downlink'),true),uplink:observation(status(d.id,'probe.uplink'),true)};
-      const permissions=status(d.id,'permissions');
-      if(canCommand(device)===null && permissions && permissions.observedAt != null && permissions.receivedAt != null && Number.isFinite(new Date(permissions.observedAt).getTime()) && new Date(permissions.observedAt).getTime()>=0 && new Date(permissions.observedAt).getTime()<=now && new Date(permissions.observedAt).getTime()<=new Date(permissions.receivedAt).getTime() && now<=new Date(permissions.observedAt).getTime()+permissions.ttlSec*1000 && Array.isArray(permissions.value)) {
-        const permissionList=permissions.value;
-        const granted=(name:string)=>permissionList.some((p:unknown)=>!!p && typeof p==='object' && ((p as {name?:unknown}).name===name || (p as {name?:unknown}).name==='android.permission.'+name) && (p as {granted?:unknown}).granted===true);
-        if(granted('SEND_SMS')&&granted('RECEIVE_SMS'))capability.smsReady++;
+      if (canCommand(device) === null && assessSmsPermissions(status(d.id, 'permissions'), now) === 'granted') {
+        capability.smsReady++;
       }
       if (canCall(device, 'ready', now)) capability.callReady += readyByDevice.get(d.id) ?? 0;
     }

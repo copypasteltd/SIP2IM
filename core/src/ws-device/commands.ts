@@ -3,8 +3,9 @@ import { ulid } from 'ulid';
 import { allocateSmsCommandId, isSmsCommandId } from '../sms/attempt-id.js';
 import type { SmsCommandAck } from '../sms/dispatch.js';
 import type { DeviceSocket } from './session.js';
+import type { ConfigAttachment } from '../settings/device-config.js';
 
-type Attachment = { socket: DeviceSocket; call?: { connectionId: string; current(): boolean } };
+type Attachment = { socket: DeviceSocket; call?: { connectionId: string; current(): boolean }; config?: ConfigAttachment };
 export type CallCommand = 'call.dial' | 'call.answer' | 'call.reject' | 'call.hangup' | 'call.dtmf';
 export interface CurrentCallAttachment {
   connectionId: string;
@@ -18,29 +19,30 @@ type PendingCommand = {
   reject: (error: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
 };
-type DeliveryStatus = 'pending' | 'acknowledged' | 'failed';
 type SmsPayload = { taskId: string; subId: number | null; slot: number; to: string; body: string };
 
 export class DeviceCommands {
   private readonly sockets = new Map<string, Attachment>();
   private readonly pending = new Map<string, PendingCommand>();
-  private readonly delivery = new Map<string, DeliveryStatus>();
 
   constructor(private readonly beforeSend: () => void = () => {}) {}
 
   isConnected(id: string): boolean { return this.sockets.has(id); }
-  deliveryStatus(): ReadonlyMap<string, DeliveryStatus> { return new Map(this.delivery); }
+  /** A config target becomes eligible only after this socket sent hello.ok. */
+  configReady(deviceId: string, socket: DeviceSocket): void {
+    const attachment = this.sockets.get(deviceId);
+    if (!attachment || attachment.socket !== socket || attachment.config) return;
+    const current = () => this.sockets.get(deviceId) === attachment && (socket.readyState === undefined || socket.readyState === 1);
+    if (!current()) return;
+    attachment.config = {
+      deviceId,
+      current,
+      send: (payload, allowed) => this.sendOrdinaryOn(deviceId, attachment, 'config.update', payload, () => current() && allowed()),
+    };
+  }
 
-  async broadcast(type: string, payload: unknown): Promise<void> {
-    await Promise.all([...this.sockets.keys()].map(async id => {
-      this.delivery.set(id, 'pending');
-      try {
-        const ack = await this.send(id, type, payload);
-        this.delivery.set(id, ack.ok ? 'acknowledged' : 'failed');
-      } catch {
-        this.delivery.set(id, 'failed');
-      }
-    }));
+  configAttachments(): readonly ConfigAttachment[] {
+    return [...this.sockets.values()].flatMap(attachment => attachment.config?.current() ? [attachment.config] : []);
   }
 
   attach(id: string, socket: DeviceSocket, call?: Attachment['call']): void {
@@ -116,14 +118,19 @@ export class DeviceCommands {
 
   send(deviceId: string, type: string, payload: unknown): Promise<SmsCommandAck> {
     if (type === 'sms.send' || type.startsWith('call.')) return Promise.reject(new Error('Action requires a prepared command'));
+    if (type === 'config.update') return Promise.reject(new Error('Configuration requires an eligible attachment'));
     const attachment = this.sockets.get(deviceId);
     if (!attachment) return Promise.reject(new Error('offline'));
+    return this.sendOrdinaryOn(deviceId, attachment, type, payload);
+  }
+
+  private sendOrdinaryOn(deviceId: string, attachment: Attachment, type: string, payload: unknown, current?: () => boolean): Promise<SmsCommandAck> {
     const id = 'cmd_' + ulid();
     if (isSmsCommandId(id)) return Promise.reject(new Error('Ordinary command ID is in the SMS range'));
     let frame: string;
     try { frame = JSON.stringify({ v: 1, type, id, ts: Date.now(), payload }); }
     catch { return Promise.reject(new Error('send failed')); }
-    return this.sendOn(deviceId, attachment, id, frame);
+    return this.sendOn(deviceId, attachment, id, frame, current);
   }
 
   private sendOn(deviceId: string, attachment: Attachment, id: string, frame: string, current?: () => boolean): Promise<SmsCommandAck> {

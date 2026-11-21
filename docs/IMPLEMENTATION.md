@@ -22,6 +22,12 @@
 - 取消与绑定争用同一绑定码记录锁。已使用的码被取消时，撤销设备及凭据与写入取消记录同一事务完成。会话和媒体清理由事务提交后执行。清理待确认时保留服务器记录并针对同一 `recordId` 重试核对。 [绑定仓库](../core/src/devices/binding.ts) [启动入口](../core/src/main.ts)
 - 前台服务要求持久化的活动绑定和当前连接代次，且 `hello.ok` 的 `deviceId` 必须匹配。观察到终止性关闭、或进程重启后仍有无人持有的打开记录时，进入人工核对。队列和命令检查绑定及代次。旧记录保留以便核对，已经提交给 Android 的副作用可能继续。 [Android 服务](../android/app/src/main/kotlin/io/voipgw/gateway/core/GatewayService.kt) [绑定状态](../android/app/src/main/kotlin/io/voipgw/gateway/core/BindingFence.kt)
 
+### 设备配置同步
+
+Core 在握手时提供当前心跳周期和语言。设置变更会唤醒独立的配置对账任务；任务每次读取数据库已提交值，不转发请求值。不确定提交会使在途读取失效，随后再次以权威读回为准。已提交设置的 HTTP 结果不是设备 ACK。每轮最多并发核对 8 台完成握手的设备，按设备轮转。仅当前连接对本次命令 ID 的正向确认可结束重试；不确认或负向应答有 30 秒退避，新值或新连接可立即重新纳入批次。关停先禁止新写入并排空在途工作。此重试仅用于幂等配置，不发送短信，也不重新拨号。[配置对账](../core/src/settings/device-config.ts) · [设备命令](../core/src/ws-device/commands.ts)
+
+短信就绪统计和短信权限告警统一使用限时的三态观测。只有发送和接收权限均已明确授予才计入就绪。明确缺少任一权限可触发权限告警，同项记录矛盾或格式不明则不作该项结论。统计不能证明短信实际发送或送达。[权限证据](../core/src/devices/sms-permissions.ts)
+
 ### 短信调度和 ACK
 
 | 边界 | 可下结论 | 恢复依据 |
@@ -92,6 +98,12 @@ Core 在现有单实例定时任务中扫描四类设备告警。只有曾联系
 - The same attempt can return the same device ID until 24 hours after code expiry. Replay requires the matching credential, request and attempt ID and checks cancellation and revocation. v1 binding remains available for compatibility. A used v1 code has no v2 replay evidence. The v2 client has no fallback to v1. [Binding repository](../core/src/devices/binding.ts)
 - Binding and cancellation serialize on the same code record. Cancellation of a consumed code records the cancellation and revokes the device and credentials in the same transaction. Session and media teardown runs after commit. If teardown is pending, preserve the server record and retry reconciliation using the same `recordId`. [Binding repository](../core/src/devices/binding.ts) [Startup](../core/src/main.ts)
 - The foreground service requires a durable active binding, the current connection generation, and a `hello.ok` with a matching `deviceId`. An observed terminal close or an open record without a live owner after process restart requires reconciliation. Queue and command gates check identity and generation. Old records remain available for investigation, and work already submitted to Android can continue. [Android service](../android/app/src/main/kotlin/io/voipgw/gateway/core/GatewayService.kt) [Binding state](../android/app/src/main/kotlin/io/voipgw/gateway/core/BindingFence.kt)
+
+### Device configuration sync
+
+Core supplies the current heartbeat interval and locale during hello. A settings change wakes the independent configuration reconciler, which reads committed database values rather than forwarding the request payload. An uncertain commit invalidates in-flight reads; subsequent passes use authoritative readback. A successful HTTP save is not a device ACK. Each pass reconciles up to eight post-hello attachments in rotation. Only a positive ACK for that command on the current connection confirms application. Missing or negative ACKs back off for 30 seconds; a new value or attachment is eligible on the next pass. Shutdown fences new sends and drains work. This retry policy applies only to idempotent configuration, never SMS or calls. [Reconciler](../core/src/settings/device-config.ts) · [Command transport](../core/src/ws-device/commands.ts)
+
+SMS readiness counts and permission alerts share the same time-bounded, three-way interpretation. Both send and receive grants must be unambiguous to count as ready. An independent explicit denial can raise an alert; contradictory or malformed evidence is inconclusive for that permission. Readiness does not prove SMS submission or delivery. [Permission evidence](../core/src/devices/sms-permissions.ts)
 
 ### SMS scheduling and ACKs
 
